@@ -11,11 +11,7 @@ import os.log
 //   截图解释:⌃⌥E / 菜单「📷 截图解释」框选屏幕 → MiMo 多模态看图讲解(可追问)
 // ============================================================
 
-// MARK: - 路径 / 配置目录(最先初始化,保证日志可写)
-
-let kConfigDir = (("~/.config/popdict" as NSString).expandingTildeInPath)
-let kLogPath = kConfigDir + "/popdict.log"
-let kKeyPath = kConfigDir + "/mimo_key"          // 旧版单 key 文件,仅用于首启迁移到 config.json
+// MARK: - 路径 / 配置目录(最先初始化,保证日志可写,常量见 Config.swift)
 
 // MARK: - 模型后端(当前厂商由 AppConfig 决定,见 Config.swift)
 
@@ -99,62 +95,6 @@ func selectedTextViaAX() -> String? {
     return text
 }
 
-// 取选中文字 + 选区屏幕范围(Quartz 左上原点坐标)。bounds 用于把浮窗定位到选区右侧;取不到则 bounds=nil。
-func selectedTextAndBoundsViaAX() -> (text: String, bounds: CGRect?)? {
-    let systemWide = AXUIElementCreateSystemWide()
-    var focused: AnyObject?
-    guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-          let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID() else { return nil }
-    let axElement = element as! AXUIElement
-    var selected: AnyObject?
-    guard AXUIElementCopyAttributeValue(axElement, kAXSelectedTextAttribute as CFString, &selected) == .success,
-          let text = selected as? String, !text.isEmpty else { return nil }
-    return (text, boundsForSelection(axElement))
-}
-
-// 取选区屏幕矩形(Quartz 左上原点)。多套方法兜底以覆盖更多 App:
-//   1) kAXSelectedTextRange + kAXBoundsForRange(原生 Cocoa 文本视图)
-//   2) AXSelectedTextMarkerRange + AXBoundsForTextMarkerRange(WebKit/Safari、部分 Electron)
-//   3) 焦点元素自身的 kAXFrame(粗略:整个输入框,作最后兜底)
-func boundsForSelection(_ el: AXUIElement) -> CGRect? {
-    func rectFromValue(_ v: AnyObject?) -> CGRect? {
-        guard let v = v, CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
-        var rect = CGRect.zero
-        guard AXValueGetValue(v as! AXValue, .cgRect, &rect), rect.width > 0 || rect.height > 0 else { return nil }
-        return rect
-    }
-    // 方法 1:range → bounds
-    var rangeVal: AnyObject?
-    let rErr = AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &rangeVal)
-    if rErr == .success, let rangeVal = rangeVal, CFGetTypeID(rangeVal) == AXValueGetTypeID() {
-        var bv: AnyObject?
-        let bErr = AXUIElementCopyParameterizedAttributeValue(el, kAXBoundsForRangeParameterizedAttribute as CFString, rangeVal, &bv)
-        if let r = rectFromValue(bv) { return r }
-        logLine("    m1 bounds-for-range err=\(bErr.rawValue)")
-    } else {
-        logLine("    m1 selected-range err=\(rErr.rawValue)")
-    }
-    // 方法 2:WebKit text marker range → bounds
-    var mr: AnyObject?
-    let mErr = AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &mr)
-    if mErr == .success, let mr = mr {
-        var bv: AnyObject?
-        let bErr = AXUIElementCopyParameterizedAttributeValue(el, "AXBoundsForTextMarkerRange" as CFString, mr, &bv)
-        if let r = rectFromValue(bv) { return r }
-        logLine("    m2 marker-bounds err=\(bErr.rawValue)")
-    } else {
-        logLine("    m2 marker-range err=\(mErr.rawValue)")
-    }
-    // 方法 3:焦点元素整体 frame(粗略兜底)
-    var fv: AnyObject?
-    if AXUIElementCopyAttributeValue(el, "AXFrame" as CFString, &fv) == .success, let r = rectFromValue(fv) {
-        logLine("    m3 element-frame used")
-        return r
-    }
-    logLine("    bounds: all methods failed")
-    return nil
-}
-
 // 全类型快照 + 完整恢复,避免污染用户剪贴板;轮询 changeCount 而非死等
 func selectedTextViaCopy() -> String? {
     let pb = NSPasteboard.general
@@ -202,37 +142,23 @@ func selectedTextViaCopy() -> String? {
     return nil
 }
 
-// MARK: - 翻译(MiMo)
+// MARK: - 翻译(支持 OpenAI / Anthropic / Gemini 兼容协议)
 
 func translate(_ text: String, completion: @escaping (String?, String?) -> Void) {
     guard let prov = AppConfig.shared.active, !prov.apiKey.isEmpty else {
-        completion(nil, "没配置 API Key。请点菜单栏 🌐 →「设置…」填入当前厂商的 Key")
+        completion(nil, "没配置 API Key。请点菜单栏 🌐 →「设置…」→「自定义厂商」填入当前厂商的 Key")
         return
     }
     let target = hasChinese(text) ? "English" : "Simplified Chinese"
     let sys = "You are a professional translation engine. Translate the user's text into \(target). Output ONLY the translation itself — no explanations, no quotes, no extra words."
 
-    let body: [String: Any] = [
-        "model": prov.model,
-        "messages": [
-            ["role": "system", "content": sys],
-            ["role": "user", "content": text]
-        ],
-        "temperature": 0.3,
-        "max_completion_tokens": kMaxTokens,
-        "thinking": ["type": "disabled"],
-        "stream": false
+    let messages: [[String: Any]] = [
+        ["role": "system", "content": sys],
+        ["role": "user", "content": text]
     ]
-    guard let url = URL(string: prov.chatURL),
-          let data = try? JSONSerialization.data(withJSONObject: body) else {
+    guard let req = prov.buildRequest(messages: messages, temperature: 0.3, maxTokens: kMaxTokens, stream: false) else {
         completion(nil, "请求构造失败"); return
     }
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue("Bearer \(prov.apiKey)", forHTTPHeaderField: "Authorization")
-    req.httpBody = data
-    req.timeoutInterval = 30
 
     URLSession.shared.dataTask(with: req) { respData, resp, err in
         if let err = err {
@@ -244,11 +170,7 @@ func translate(_ text: String, completion: @escaping (String?, String?) -> Void)
             return
         }
         guard let respData = respData,
-              let json = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let first = choices.first,
-              let msg = first["message"] as? [String: Any],
-              let content = msg["content"] as? String else {
+              let content = prov.parseResponse(data: respData) else {
             DispatchQueue.main.async { completion(nil, "返回解析失败") }
             return
         }
@@ -256,7 +178,7 @@ func translate(_ text: String, completion: @escaping (String?, String?) -> Void)
     }.resume()
 }
 
-// MARK: - 解释 / 追问(MiMo 流式 / SSE)
+// MARK: - 解释 / 追问(支持 OpenAI / Anthropic / Gemini 流式 / SSE)
 
 // 解释用的 system prompt(自适应:代码拆解、概念大白话;短则短答长则分点)
 let kExplainSystem = """
@@ -277,28 +199,12 @@ func chatStream(_ messages: [[String: Any]],
                 onDone: @escaping (String) -> Void,
                 onError: @escaping (String) -> Void) -> Task<Void, Never>? {
     guard let prov = AppConfig.shared.active, !prov.apiKey.isEmpty else {
-        onError("没配置 API Key。请点菜单栏 🌐 →「设置…」填入当前厂商的 Key")
+        onError("没配置 API Key。请点菜单栏 🌐 →「设置…」→「自定义厂商」填入当前厂商的 Key")
         return nil
     }
-    let body: [String: Any] = [
-        "model": prov.model,
-        "messages": messages,
-        "temperature": 0.5,
-        "max_completion_tokens": kMaxTokens,
-        "thinking": ["type": "disabled"],
-        "stream": true
-    ]
-    guard let url = URL(string: prov.chatURL),
-          let data = try? JSONSerialization.data(withJSONObject: body) else {
+    guard let req = prov.buildRequest(messages: messages, temperature: 0.5, maxTokens: kMaxTokens, stream: true) else {
         onError("请求构造失败"); return nil
     }
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue("Bearer \(prov.apiKey)", forHTTPHeaderField: "Authorization")
-    req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-    req.httpBody = data
-    req.timeoutInterval = 60
 
     return Task {
         var accum = ""
@@ -308,20 +214,22 @@ func chatStream(_ messages: [[String: Any]],
                 await MainActor.run { onError("\(prov.name) 出错(HTTP \(http.statusCode)),请检查 Key 或余额") }
                 return
             }
+            var finished = false
             for try await line in bytes.lines {
-                if Task.isCancelled { return }
-                guard line.hasPrefix("data:") else { continue }     // 跳过空行 / `: keep-alive` 心跳
-                let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                if payload == "[DONE]" { break }
-                guard let d = payload.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                      let choices = json["choices"] as? [[String: Any]],
-                      let first = choices.first,
-                      let delta = first["delta"] as? [String: Any],
-                      let piece = delta["content"] as? String, !piece.isEmpty else { continue }
-                accum += piece
-                let snapshot = piece
-                await MainActor.run { onDelta(snapshot) }
+                if Task.isCancelled || finished { break }
+                switch prov.parseStreamLine(line) {
+                case .ignore:
+                    continue
+                case .done:
+                    finished = true
+                case .error(let errMsg):
+                    await MainActor.run { onError("\(prov.name) 出错:\(errMsg)") }
+                    return
+                case .delta(let piece):
+                    accum += piece
+                    let snapshot = piece
+                    await MainActor.run { onDelta(snapshot) }
+                }
             }
             if Task.isCancelled { return }
             let full = accum
@@ -488,14 +396,21 @@ final class PopupController: NSObject, NSWindowDelegate {
         }, completionHandler: { p.orderOut(nil) })
     }
 
-    func showButton(text: String, selectionBounds: CGRect? = nil, fallbackPoint: NSPoint) {
+    func showButton(text: String, fallbackPoint: NSPoint) {
         generation += 1
         stopConversation()
+        if let old = panel {
+            old.orderOut(nil)
+            panel = nil
+            body = nil
+            frameAnimations = 0
+        }
         panelIsResizable = false
         pendingText = text
         let h: CGFloat = 32, bw: CGFloat = 74, sep: CGFloat = 1
         let w: CGFloat = bw * 2 + sep
-        let rect = buttonRect(w: w, h: h, selectionBounds: selectionBounds, fallbackPoint: fallbackPoint)
+        let rect = buttonRect(w: w, h: h, at: fallbackPoint)
+        logLine("  popup at cursor=(\(Int(fallbackPoint.x)),\(Int(fallbackPoint.y))) rect=\(NSStringFromRect(rect))")
         let container = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
 
         let tBtn = HoverButton(frame: NSRect(x: 0, y: 0, width: bw, height: h))
@@ -607,7 +522,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         uiTestMode = true
         let q = "用中文详细解释 Python 的装饰器(decorator):是什么、@ 语法糖的原理、不带参数和带参数的装饰器分别怎么写、以及 functools.wraps 的作用。请分小节、配多个代码例子。"
         let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 100, y: $0.frame.midY + 220) } ?? NSEvent.mouseLocation
-        showButton(text: q, selectionBounds: nil, fallbackPoint: p)
+        showButton(text: q, fallbackPoint: p)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.onExplainClicked() }
     }
 
@@ -615,7 +530,7 @@ final class PopupController: NSObject, NSWindowDelegate {
     // 验证自适应尺寸(短译文小窗、长译文到上限)+ 顶边固定向下生长 + 帧动画;不走网络。
     func runDemoTranslate() {
         let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 100, y: $0.frame.midY + 220) } ?? NSEvent.mouseLocation
-        showButton(text: "hello world", selectionBounds: nil, fallbackPoint: p)
+        showButton(text: "hello world", fallbackPoint: p)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.showMessage("翻译中…", isError: false)
         }
@@ -709,7 +624,7 @@ final class PopupController: NSObject, NSWindowDelegate {
 
         addGrip(to: container)
         var rect = NSRect(x: topLeft.x, y: topLeft.y - startH, width: w, height: startH)
-        rect = clampToScreen(rect)
+        rect = clampToScreen(rect, anchor: topLeft)
         present(content: container, rect: rect)
         startAutoGrow()
     }
@@ -731,7 +646,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         lm.ensureLayout(for: tc)
         let contentH = ceil(lm.usedRect(for: tc).height)
         let desired = convoPad + contentH + transcriptBottomGap + inputBarH
-        let vf = screenFor(p.frame).visibleFrame
+        let vf = (p.screen ?? screenFor(point: NSPoint(x: p.frame.minX, y: p.frame.maxY))).visibleFrame
         let newH = min(max(desired, minPopupSize.height), popupHeightCap(vf))
         guard newH > p.frame.height + 1 else { return }
         let newY = max(p.frame.maxY - newH, vf.minY + kScreenEdgeGap)
@@ -1007,9 +922,18 @@ final class PopupController: NSObject, NSWindowDelegate {
         p.makeFirstResponder(field)
     }
 
-    private func screenFor(_ rect: NSRect) -> NSScreen {
-        NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: rect.midX, y: rect.midY)) })
+    private func screenFor(point: NSPoint) -> NSScreen {
+        if let s = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
+            return s
+        }
+        return NSScreen.screens.min(by: { sqDist(point, $0.frame) < sqDist(point, $1.frame) })
             ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    private func sqDist(_ p: NSPoint, _ r: NSRect) -> CGFloat {
+        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+        return dx * dx + dy * dy
     }
 
     private func scrollTranscriptToBottom() {
@@ -1081,7 +1005,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         let textW = w - pad * 2
 
         let contentH = max(20, natural.height)
-        let vf = screenFor(NSRect(x: topLeft.x, y: topLeft.y - 1, width: 1, height: 1)).visibleFrame
+        let vf = (panel?.screen ?? screenFor(point: topLeft)).visibleFrame
         let maxContentH = showCopy
             ? popupHeightCap(vf) - pad - bottomInset
             : min(440, vf.height - 140)
@@ -1123,7 +1047,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         }
 
         var rect = NSRect(x: topLeft.x, y: topLeft.y - panelH, width: w, height: panelH)
-        rect = clampToScreen(rect)
+        rect = clampToScreen(rect, anchor: topLeft)
         present(content: container, rect: rect)
         tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
@@ -1199,30 +1123,17 @@ final class PopupController: NSObject, NSWindowDelegate {
     }
 
     // 按钮气泡定位(纯几何在 Geometry.swift,可单测):
-    //   有可信选区 → 选区右侧、顶边对齐选区上沿(之后的结果/会话同锚点向下生长);
-    //   无可信选区 → 鼠标释放点上方居中。按钮按自身宽度摆放、贴着选区;
-    //   之后展开的大浮窗若放不下,由 clampToScreen 再横移,不为它提前留空。
-    private func buttonRect(w: CGFloat, h: CGFloat, selectionBounds: CGRect?, fallbackPoint: NSPoint) -> NSRect {
-        guard let sel = selectionBounds else {
-            let vf = screenFor(NSRect(x: fallbackPoint.x, y: fallbackPoint.y, width: 1, height: 1)).visibleFrame
-            return rectNearPoint(fallbackPoint, visible: vf, w: w, h: h)
-        }
-        // sel:Quartz 屏幕坐标(左上原点)→ AppKit(左下原点,以主屏高度翻转)
-        let primaryH = primaryScreenHeight()
-        let selAK = CGRect(x: sel.minX, y: primaryH - sel.maxY, width: sel.width, height: sel.height)
-        return rectBesideSelection(selAK, visible: screenFor(selAK).visibleFrame, w: w, h: h)
+    //   浮窗左上角 (minX, maxY) 精确落在鼠标释放光标右下角 (pt.x + 8, pt.y - 8);
+    //   之后展开的翻译/解释浮窗保持该左上角锚点向右、向下生长,超出可视区时由 clampToScreen 夹紧。
+    private func buttonRect(w: CGFloat, h: CGFloat, at point: NSPoint) -> NSRect {
+        let vf = screenFor(point: point).visibleFrame
+        return rectAtCursorBottomRight(point, visible: vf, w: w, h: h)
     }
 
-    private func clampToScreen(_ rect: NSRect) -> NSRect {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: rect.midX, y: rect.midY)) })
-                ?? NSScreen.main else { return rect }
-        let vf = screen.visibleFrame
-        var r = rect
-        if r.maxX > vf.maxX { r.origin.x = vf.maxX - r.width - 6 }
-        if r.minX < vf.minX { r.origin.x = vf.minX + 6 }
-        if r.maxY > vf.maxY { r.origin.y = vf.maxY - r.height - 6 }
-        if r.minY < vf.minY { r.origin.y = vf.minY + 6 }
-        return r
+    private func clampToScreen(_ rect: NSRect, anchor: NSPoint? = nil) -> NSRect {
+        let refPoint = anchor ?? NSPoint(x: rect.minX, y: rect.maxY)
+        let vf = (panel?.screen ?? screenFor(point: refPoint)).visibleFrame
+        return clampRectToVisible(rect, visible: vf)
     }
 }
 
@@ -1247,24 +1158,15 @@ func handleMouseUp(down: CGPoint, up: CGPoint) {
     // 取词放后台线程,避免 usleep 阻塞主 runloop 导致 tap 超时被禁用
     DispatchQueue.global(qos: .userInitiated).async {
         usleep(50_000)
-        let axResult = selectedTextAndBoundsViaAX()
-        logLine("  AX=\(axResult?.text ?? "nil") bounds=\(axResult?.bounds.map { "\(Int($0.maxX)),\(Int($0.minY))" } ?? "nil")")
-        let text = axResult?.text ?? selectedTextViaCopy()
-        logLine("  final=\(text ?? "nil")")
-        // AX 矩形先过可信性检查:垃圾矩形(整元素 frame / 错位坐标)宁可不用,
-        // 否则浮窗会被顶到窗口右上角(漂移)。不可信 → 退回鼠标释放点定位。
-        var bounds = axResult?.bounds
-        if let b = bounds, !plausibleSelectionBounds(b, down: down, up: up) {
-            logLine("  bounds implausible \(Int(b.width))x\(Int(b.height)) → 用鼠标释放点")
-            bounds = nil
-        }
+        let ax = selectedTextViaAX()
+        let text = ax ?? selectedTextViaCopy()
+        logLine("  AX=\(ax != nil ? "ok" : "nil") final=\(text ?? "nil")")
         DispatchQueue.main.async {
             gFetchInFlight = false
             guard let text = text else { return }
-            // 兜底锚点用「释放那一刻」的位置(Quartz→AppKit 翻转),
-            // 不用 NSEvent.mouseLocation:取词(尤其 Cmd+C 路径)最长要 ~750ms,期间鼠标一动就漂
+            // 锚点用「释放那一刻」的光标位置(Quartz→AppKit 翻转),精确落在光标右下角
             let upAK = NSPoint(x: up.x, y: primaryScreenHeight() - up.y)
-            gAppDelegate?.popup.showButton(text: text, selectionBounds: bounds, fallbackPoint: upAK)
+            gAppDelegate?.popup.showButton(text: text, fallbackPoint: upAK)
         }
     }
 }
@@ -1364,15 +1266,21 @@ final class HotKey {
     }
 }
 
-// macOS Tahoe 26 起会自动给「标准动作」菜单项配图标(如「设置…」的齿轮)。一旦有图标,
-// 整个菜单就多出一列「图标列」,其它无图标项的文字被顶右、看着缩进。本 App 不需要任何菜单图标,
-// 故全局把 NSMenuItem.image 的 getter 交换成返回 nil(自动图标读不到 image 就不画)。
-// 参考 Brent Simmons / NetNewsWire 的做法。
+// macOS Tahoe 26 起会自动给「标准动作」菜单项配图标(如「设置…」的齿轮)。
+// 通过关联对象仅允许显式调用 setExplicitIcon(_:) 的菜单项(如服务商下拉里的品牌 Logo)显示图标,
+// 其余未显式设置图标的菜单项一律返回 nil,避免状态栏菜单出现自动图标与多余缩进。
+private var kExplicitMenuIconKey: UInt8 = 0
 extension NSMenuItem {
-    @objc func popdict_nilImage() -> NSImage? { nil }
+    func setExplicitIcon(_ img: NSImage?) {
+        objc_setAssociatedObject(self, &kExplicitMenuIconKey, img, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        self.image = img
+    }
+    @objc func popdict_customImage() -> NSImage? {
+        return objc_getAssociatedObject(self, &kExplicitMenuIconKey) as? NSImage
+    }
     static func popdictDisableAutoIcons() {
         guard let o = class_getInstanceMethod(NSMenuItem.self, #selector(getter: NSMenuItem.image)),
-              let r = class_getInstanceMethod(NSMenuItem.self, #selector(NSMenuItem.popdict_nilImage)) else { return }
+              let r = class_getInstanceMethod(NSMenuItem.self, #selector(NSMenuItem.popdict_customImage)) else { return }
         method_exchangeImplementations(o, r)
     }
 }
@@ -1395,10 +1303,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
 
         // UI 截图自测(不建事件 tap / 不请求权限),便于截屏验证真实渲染:
-        //   POPDICT_UITEST=translate → 翻译流程(本地、不走网络);其它值 → 解释会话流程(走真实 API)
+        //   POPDICT_UITEST=translate → 翻译流程(本地、不走网络)
+        //   POPDICT_UITEST=settings  → 设置窗口双 Tab 自检(权限检查 + 自定义厂商)
+        //   其它值 → 解释会话流程(走真实 API)
         if let mode = ProcessInfo.processInfo.environment["POPDICT_UITEST"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                if mode == "translate" { self?.popup.runDemoTranslate() } else { self?.popup.runDemoExplain() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self = self else { return }
+                if mode == "translate" {
+                    self.popup.runDemoTranslate()
+                } else if mode == "settings" {
+                    self.settings.show(tab: 0)
+                    logLine("UITEST settings tab=0 (基础) frame=\(self.settings.windowObject?.frame ?? .zero)")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        self.settings.selectTab(1)
+                        logLine("UITEST settings tab=1 (权限) frame=\(self.settings.windowObject?.frame ?? .zero)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            self.settings.selectTab(2)
+                            logLine("UITEST settings tab=2 (服务商) frame=\(self.settings.windowObject?.frame ?? .zero)")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                NSApp.terminate(nil)
+                            }
+                        }
+                    }
+                } else {
+                    self.popup.runDemoExplain()
+                }
             }
             return
         }
@@ -1438,23 +1367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func buildMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "popdict 划词翻译 / 截图解释", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        let axOK = AXIsProcessTrusted()
-        menu.addItem(NSMenuItem(title: axOK ? "✓ 辅助功能:已授权" : "⚠️ 辅助功能:未授权(点下面去开)",
-                                action: nil, keyEquivalent: ""))
-        let act = AppConfig.shared.active
-        let keyOK = !(act?.apiKey.isEmpty ?? true)
-        menu.addItem(NSMenuItem(title: keyOK ? "✓ 当前:\(act?.name ?? "?")(已配置 Key)" : "⚠️ 当前:\(act?.name ?? "未设置")(未填 Key)",
-                                action: nil, keyEquivalent: ""))
-        let scrOK = RegionCapture.hasScreenRecordingPermission()
-        menu.addItem(NSMenuItem(title: scrOK ? "✓ 屏幕录制:已授权" : "⚠️ 屏幕录制:未授权(截图解释需要)",
-                                action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "辅助功能权限设置…", action: #selector(openAXSettings), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "屏幕录制权限设置…", action: #selector(openScreenRecordingSettings), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "重新检查权限", action: #selector(recheck), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
         return menu
@@ -1487,6 +1400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func refreshMenu() {
         statusItem?.menu = buildMenu()
+        settings.refreshPermissions()
     }
 
     func requestAccessibility() {
@@ -1504,11 +1418,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func onScreenshotExplain() {
         guard AppConfig.shared.active?.vision == true else {
             let a = NSAlert()
-            a.messageText = "当前厂商不支持看图"
-            a.informativeText = "当前使用的「\(AppConfig.shared.active?.name ?? "?")」没有勾选「支持看图」。请点菜单栏 🌐 →「设置…」,切换到一个支持看图的厂商(如 MiMo)。"
+            a.messageText = "当前服务商不支持看图"
+            a.informativeText = "当前使用的「\(AppConfig.shared.active?.name ?? "?")」没有勾选「支持看图」。请点菜单栏 🌐 →「设置…」→「服务商」,切换到一个支持看图的服务商(如 Vertex AI、Gemini、MiMo)或勾选「支持看图」。"
             a.addButton(withTitle: "打开设置"); a.addButton(withTitle: "取消")
             NSApp.activate(ignoringOtherApps: true)
-            if a.runModal() == .alertFirstButtonReturn { openSettings() }
+            if a.runModal() == .alertFirstButtonReturn { settings.show(tab: 2) }
             return
         }
         if !RegionCapture.hasScreenRecordingPermission() {

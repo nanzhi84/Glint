@@ -13,3 +13,7 @@ popdict-app/popdict
 
 # macOS
 .DS_Store
+
+# Universal Harness runtime & verification sandboxes
+work/
+artifacts/

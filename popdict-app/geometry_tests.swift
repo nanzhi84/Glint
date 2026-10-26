@@ -6,79 +6,146 @@ import AppKit
 @main
 struct GeoTests {
     static var failures = 0
+
     static func expect(_ cond: Bool, _ name: String) {
-        if cond { print("  ok  \(name)") } else { failures += 1; print("FAIL  \(name)") }
+        if cond {
+            print("  ok  \(name)")
+        } else {
+            failures += 1
+            print("FAIL  \(name)")
+        }
+    }
+
+    static func approx(_ a: CGFloat, _ b: CGFloat, eps: CGFloat = 0.5) -> Bool {
+        abs(a - b) < eps
+    }
+
+    static func insideSafeArea(_ r: NSRect, visible vf: CGRect, gap: CGFloat = 6) -> Bool {
+        let safe = vf.insetBy(dx: gap, dy: gap)
+        return r.minX >= safe.minX - 0.5
+            && r.maxX <= safe.maxX + 0.5
+            && r.minY >= safe.minY - 0.5
+            && r.maxY <= safe.maxY + 0.5
     }
 
     static func main() {
-        // —— plausibleSelectionBounds(Quartz 左上原点)——
+        let vf = NSRect(x: 0, y: 0, width: 1800, height: 1100)
+        let bubbleW: CGFloat = 152
+        let bubbleH: CGFloat = 34
 
-        // 正常:单行选中,从左往右拖,选区就在拖拽轨迹上
-        expect(plausibleSelectionBounds(CGRect(x: 100, y: 500, width: 220, height: 22),
-                                        down: CGPoint(x: 105, y: 510), up: CGPoint(x: 315, y: 512)),
-               "单行正向选中 → 可信")
+        // —— 1. 常量契约 ——
+        expect(approx(kScreenEdgeGap, 6) && approx(kCursorOffsetX, 8) && approx(kCursorOffsetY, 8),
+               "常量契约: kScreenEdgeGap=6, kCursorOffsetX=8, kCursorOffsetY=8")
 
-        // 正常:从下往上反向选中三行
-        expect(plausibleSelectionBounds(CGRect(x: 80, y: 430, width: 500, height: 66),
-                                        down: CGPoint(x: 400, y: 490), up: CGPoint(x: 90, y: 435)),
-               "多行反向(下→上)选中 → 可信")
+        // —— 2. 常规位置(主屏内部): 浮窗左上角精确落在光标右下角 (pt.x + 8, pt.y - 8) ——
+        let ptNormal = NSPoint(x: 900, y: 500)
+        let rNormal = rectAtCursorBottomRight(ptNormal, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rNormal.minX, 908)
+                && approx(rNormal.maxY, 492)
+                && approx(rNormal.origin.y, 492 - bubbleH)
+                && approx(rNormal.width, bubbleW)
+                && approx(rNormal.height, bubbleH)
+                && rNormal.minX > ptNormal.x
+                && rNormal.maxY < ptNormal.y,
+               "常规位置: 左上角精确锚定在光标右下角 (pt.x+8, pt.y-8)")
 
-        // 正常:单行输入框的整体 frame(m3 兜底的合法场景:小输入框)
-        expect(plausibleSelectionBounds(CGRect(x: 300, y: 300, width: 400, height: 28),
-                                        down: CGPoint(x: 320, y: 314), up: CGPoint(x: 500, y: 314)),
-               "单行输入框 frame → 可信")
+        let rCompat = rectNearPoint(ptNormal, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rCompat.minX, rNormal.minX)
+                && approx(rCompat.minY, rNormal.minY)
+                && approx(rCompat.width, rNormal.width)
+                && approx(rCompat.height, rNormal.height),
+               "兼容入口 rectNearPoint 与 rectAtCursorBottomRight 行为一致")
 
-        // 垃圾:整块网页区域的 frame(高约 900,拖拽只有几十像素)→ 拒绝
-        expect(!plausibleSelectionBounds(CGRect(x: 0, y: 80, width: 1600, height: 900),
-                                         down: CGPoint(x: 400, y: 600), up: CGPoint(x: 700, y: 560)),
-               "整元素 frame(网页区域)→ 拒绝")
+        // —— 3. 多行长段划词 / 反向划词释放点 ——
+        let ptMultiLineEnd = NSPoint(x: 745, y: 435)
+        let rMultiLine = rectAtCursorBottomRight(ptMultiLineEnd, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rMultiLine.minX, 753) && approx(rMultiLine.maxY, 427) && insideSafeArea(rMultiLine, visible: vf),
+               "多行长段划词释放点 (745, 435) → 精确锚定在 (753, 427)")
 
-        // 垃圾:矩形远离拖拽轨迹(比如报到了屏幕右上角)→ 拒绝
-        expect(!plausibleSelectionBounds(CGRect(x: 1300, y: 80, width: 200, height: 24),
-                                         down: CGPoint(x: 300, y: 700), up: CGPoint(x: 500, y: 660)),
-               "远离拖拽轨迹的矩形 → 拒绝")
+        let ptReverseEnd = NSPoint(x: 510, y: 627)
+        let rReverse = rectAtCursorBottomRight(ptReverseEnd, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rReverse.minX, 518) && approx(rReverse.maxY, 619) && insideSafeArea(rReverse, visible: vf),
+               "反向拖选释放点 (510, 627) → 精确锚定在 (518, 619)")
 
-        // 边界:选区比拖拽略高(选中整段但拖拽只扫过大半)→ 仍可信
-        expect(plausibleSelectionBounds(CGRect(x: 80, y: 400, width: 500, height: 120),
-                                        down: CGPoint(x: 100, y: 500), up: CGPoint(x: 560, y: 420)),
-               "选区略高于拖拽跨度 → 可信")
+        // —— 4. 屏幕右边界夹紧 ——
+        let ptNearRight = NSPoint(x: 1720, y: 500)
+        let rRight = rectAtCursorBottomRight(ptNearRight, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rRight.maxX, vf.maxX - 6)
+                && approx(rRight.minX, vf.maxX - 6 - bubbleW)
+                && approx(rRight.maxY, 492)
+                && insideSafeArea(rRight, visible: vf),
+               "屏幕右边界夹紧: maxX 夹紧至 vf.maxX-6, maxY 保持 pt.y-8")
 
-        // —— rectBesideSelection(AppKit 左下原点)——
-        let vf = NSRect(x: 0, y: 0, width: 1800, height: 1100)   // 简化的可视区
+        // —— 5. 屏幕下边界夹紧(含 Dock 栏上方 vf.minY > 0) ——
+        let vfWithDock = NSRect(x: 0, y: 70, width: 1800, height: 1005)
+        let ptNearDock = NSPoint(x: 600, y: 95)
+        let rBottom = rectAtCursorBottomRight(ptNearDock, visible: vfWithDock, w: bubbleW, h: bubbleH)
+        expect(approx(rBottom.minY, vfWithDock.minY + 6)
+                && approx(rBottom.minX, 608)
+                && insideSafeArea(rBottom, visible: vfWithDock),
+               "屏幕下边界夹紧(Dock 上方): minY 夹紧至 vf.minY+6, minX 保持 pt.x+8")
 
-        // 常规:右侧放得下 → 贴选区右侧、顶边对齐选区上沿
-        let r1 = rectBesideSelection(NSRect(x: 200, y: 600, width: 400, height: 60), visible: vf, w: 150, h: 32)
-        expect(abs(r1.minX - (600 + 12)) < 0.5 && abs(r1.maxY - 660) < 0.5, "选区右侧、顶边对齐")
+        // —— 6. 屏幕右下角极限位置 ——
+        let ptBottomRight = NSPoint(x: 1795, y: 5)
+        let rCornerBR = rectAtCursorBottomRight(ptBottomRight, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rCornerBR.maxX, vf.maxX - 6)
+                && approx(rCornerBR.minY, vf.minY + 6)
+                && insideSafeArea(rCornerBR, visible: vf),
+               "屏幕右下角极限位置: 同时触发右/下边界夹紧, 完整落在可视区内")
 
-        // 选区贴屏右缘:右侧放不下 → 放左侧
-        let r2 = rectBesideSelection(NSRect(x: 1400, y: 600, width: 380, height: 60), visible: vf, w: 150, h: 32)
-        expect(abs(r2.maxX - (1400 - 12)) < 0.5 && abs(r2.maxY - 660) < 0.5, "右侧放不下 → 左侧")
+        // —— 7. 屏幕左边界与上边界极限位置 ——
+        let ptLeftEdge = NSPoint(x: -5, y: 500)
+        let rLeft = rectAtCursorBottomRight(ptLeftEdge, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rLeft.minX, vf.minX + 6)
+                && approx(rLeft.maxY, 492)
+                && insideSafeArea(rLeft, visible: vf),
+               "屏幕左边界极限位置: minX 夹紧至 vf.minX+6")
 
-        // 选区横跨全屏:左右都放不下 → 贴屏右边,但必须完全在屏内
-        let r3 = rectBesideSelection(NSRect(x: 10, y: 600, width: 1780, height: 60), visible: vf, w: 150, h: 32)
-        expect(r3.maxX <= vf.maxX && r3.minX >= vf.minX && r3.maxY <= vf.maxY, "全屏宽选区 → 夹紧屏内")
+        let ptTopEdge = NSPoint(x: 900, y: 1105)
+        let rTop = rectAtCursorBottomRight(ptTopEdge, visible: vf, w: bubbleW, h: bubbleH)
+        expect(approx(rTop.minX, 908)
+                && approx(rTop.maxY, vf.maxY - 6)
+                && insideSafeArea(rTop, visible: vf),
+               "屏幕上边界极限位置: maxY 夹紧至 vf.maxY-6")
 
-        // 选区顶到屏幕顶:浮窗不能超出可视区上沿
-        let r4 = rectBesideSelection(NSRect(x: 200, y: 1090, width: 400, height: 60), visible: vf, w: 150, h: 32)
-        expect(r4.maxY <= vf.maxY, "选区贴顶 → 不超屏")
+        // —— 8. 多显示器负坐标屏幕(左侧外接屏) ——
+        let vfLeftMonitor = CGRect(x: -2560, y: -116, width: 2560, height: 1440)
+        let ptLeftMonCenter = NSPoint(x: -1200, y: 400)
+        let rLeftMonCenter = rectAtCursorBottomRight(ptLeftMonCenter, visible: vfLeftMonitor, w: bubbleW, h: bubbleH)
+        expect(approx(rLeftMonCenter.minX, -1192)
+                && approx(rLeftMonCenter.maxY, 392)
+                && insideSafeArea(rLeftMonCenter, visible: vfLeftMonitor),
+               "左侧负坐标外接屏内部: 精确落在 (-1192, 392)")
 
-        // —— rectNearPoint(AppKit 左下原点)——
+        let ptLeftMonSeam = NSPoint(x: -50, y: 400)
+        let rLeftMonSeam = rectAtCursorBottomRight(ptLeftMonSeam, visible: vfLeftMonitor, w: bubbleW, h: bubbleH)
+        expect(approx(rLeftMonSeam.maxX, -6)
+                && rLeftMonSeam.maxX <= -6
+                && approx(rLeftMonSeam.maxY, 392)
+                && insideSafeArea(rLeftMonSeam, visible: vfLeftMonitor),
+               "左侧负坐标外接屏靠近交界处 (x=-50): 夹紧至 maxX=-6, 不跨屏跳入主屏")
 
-        // 常规:浮窗在释放点上方、水平居中
-        let p1 = rectNearPoint(NSPoint(x: 900, y: 500), visible: vf, w: 150, h: 32)
-        expect(p1.minY > 500 && abs(p1.midX - 900) < 0.5, "释放点上方、水平居中")
+        // —— 9. 展开态浮窗夹紧 (clampRectToVisible) ——
+        let expandedInBounds = NSRect(x: 400, y: 300, width: 460, height: 380)
+        let cInBounds = clampRectToVisible(expandedInBounds, visible: vf)
+        expect(approx(cInBounds.minX, 400) && approx(cInBounds.minY, 300),
+               "展开态浮窗未超界: clampRectToVisible 保持原位置不变")
 
-        // 释放点贴屏顶:上方放不下 → 放下方
-        let p2 = rectNearPoint(NSPoint(x: 900, y: 1090), visible: vf, w: 150, h: 32)
-        expect(p2.maxY < 1090 && p2.maxY <= vf.maxY, "贴顶 → 放下方")
+        let expandedOverflowBR = NSRect(x: 1500, y: -120, width: 460, height: 380)
+        let cOverflowBR = clampRectToVisible(expandedOverflowBR, visible: vf)
+        expect(approx(cOverflowBR.maxX, vf.maxX - 6)
+                && approx(cOverflowBR.minY, vf.minY + 6)
+                && approx(cOverflowBR.width, 460)
+                && approx(cOverflowBR.height, 380)
+                && insideSafeArea(cOverflowBR, visible: vf),
+               "展开态浮窗超出右下边界: clampRectToVisible 严格夹紧在 vf.insetBy(dx:6, dy:6) 内")
 
-        // 释放点贴屏左缘:水平夹紧
-        let p3 = rectNearPoint(NSPoint(x: 10, y: 500), visible: vf, w: 150, h: 32)
-        expect(p3.minX >= vf.minX && p3.minY > 500, "贴左缘 → 水平夹紧")
-
-        // 释放点在右下角:全部夹紧进屏内
-        let p4 = rectNearPoint(NSPoint(x: 1795, y: 5), visible: vf, w: 150, h: 32)
-        expect(p4.maxX <= vf.maxX && p4.minY >= vf.minY && p4.maxY <= vf.maxY, "右下角 → 全夹紧")
+        let expandedOverflowTL = NSRect(x: -20, y: 800, width: 460, height: 380)
+        let cOverflowTL = clampRectToVisible(expandedOverflowTL, visible: vf)
+        expect(approx(cOverflowTL.minX, vf.minX + 6)
+                && approx(cOverflowTL.maxY, vf.maxY - 6)
+                && insideSafeArea(cOverflowTL, visible: vf),
+               "展开态浮窗超出左上边界: clampRectToVisible 严格夹紧在 vf.insetBy(dx:6, dy:6) 内")
 
         print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
         exit(failures == 0 ? 0 : 1)
