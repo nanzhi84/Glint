@@ -6,21 +6,32 @@ import CoreGraphics
 // 给 popdict 的「截图解释」用:截到的图发给 MiMo(mimo-v2.5)多模态看图讲解。
 // ============================================================
 
-// 可成为 key 的无边框遮罩窗口(为了能收到 Esc 键)
+// 可成为 key 的无边框遮罩窗口(为了能收到 Esc 键,并禁止 AppKit 按 visibleFrame 裁切或挪动全屏遮罩)
 private final class CaptureWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
 }
 
 // 全屏遮罩:拖动框选,选区外压暗、选区内透明,显示像素尺寸;Esc 取消,松手确认。
 private final class SelectionView: NSView {
+    var onBeginSelection: (() -> Void)?
     var onFinish: ((NSRect?) -> Void)?   // 选区(本视图坐标);nil = 取消
     private var startPoint: NSPoint?
     private var currentRect: NSRect = .zero
     private var finished = false
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+
+    func clearSelection() {
+        startPoint = nil
+        currentRect = .zero
+        needsDisplay = true
+    }
 
     private func finish(_ rect: NSRect?) {
         if finished { return }
@@ -29,6 +40,9 @@ private final class SelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+        onBeginSelection?()
         startPoint = convert(event.locationInWindow, from: nil)
         currentRect = .zero
         needsDisplay = true
@@ -71,10 +85,8 @@ private final class SelectionView: NSView {
         NSColor.controlAccentColor.setStroke()
         let path = NSBezierPath(rect: sel); path.lineWidth = 1.5; path.stroke()
 
-        // 尺寸标签(像素;按选区所在屏幕的缩放估算,默认 1 适配非 Retina / 外接普通屏)
-        let center = NSPoint(x: (window?.frame.minX ?? 0) + sel.midX,
-                             y: (window?.frame.minY ?? 0) + sel.midY)
-        let scale = NSScreen.screens.first(where: { $0.frame.contains(center) })?.backingScaleFactor ?? 1
+        // 尺寸标签(像素;按当前遮罩所在屏幕的缩放估算,默认 1 适配非 Retina / 外接普通屏)
+        let scale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         let label = "\(Int(sel.width * scale)) × \(Int(sel.height * scale))"
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
@@ -91,54 +103,125 @@ private final class SelectionView: NSView {
 }
 
 final class RegionCapture {
-    private var window: CaptureWindow?
+    private var windows: [CaptureWindow] = []
+    private var keyMonitor: Any?
+    private var completed = false
+    private var cursorPushed = false
 
-    // 所有屏幕并集(AppKit 坐标)
-    private static func unionFrame() -> NSRect {
-        NSScreen.screens.reduce(NSRect.zero) { $0.union($1.frame) }
+    func activeWindowFrames() -> [NSRect] {
+        windows.map { $0.frame }
     }
 
-    // 弹出全屏遮罩让用户框选;完成回调在主线程,取消时为 nil。
-    func capture(completion: @escaping (NSImage?) -> Void) {
-        let union = RegionCapture.unionFrame()
-        let win = CaptureWindow(contentRect: union, styleMask: .borderless,
-                                backing: .buffered, defer: false)
-        win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-        win.backgroundColor = .clear
-        win.isOpaque = false
-        win.hasShadow = false
-        win.ignoresMouseEvents = false
-        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        let view = SelectionView(frame: NSRect(origin: .zero, size: union.size))
-        win.contentView = view
-        window = win
+    private func cleanup() {
+        if let m = keyMonitor {
+            NSEvent.removeMonitor(m)
+            keyMonitor = nil
+        }
+        if cursorPushed {
+            NSCursor.pop()
+            cursorPushed = false
+        }
+        for win in windows {
+            win.orderOut(nil)
+        }
+        windows.removeAll()
+    }
 
-        view.onFinish = { [weak self] localRect in
-            guard let self = self, let win = self.window else { completion(nil); return }
-            guard let localRect = localRect else {
-                win.orderOut(nil); self.window = nil; completion(nil); return
+    private func finishCapture(on win: CaptureWindow?, localRect: NSRect?, completion: @escaping (NSImage?) -> Void) {
+        guard !completed else { return }
+        completed = true
+        guard let win = win, let localRect = localRect else {
+            cleanup()
+            completion(nil)
+            return
+        }
+        // 本屏幕遮罩窗口内局部坐标 → 全局 Quartz 坐标(主屏左上原点)
+        let quartz = captureQuartzRect(
+            localRect: localRect,
+            screenFrame: win.frame,
+            primaryScreenHeight: primaryScreenHeight()
+        )
+        // 截当前屏幕遮罩窗口「下方」的真实画面(压暗层不会进图);此刻窗口仍在屏上
+        let winID = CGWindowID(win.windowNumber)
+        let cg = CGWindowListCreateImage(quartz, .optionOnScreenBelowWindow, winID,
+                                         [.bestResolution, .boundsIgnoreFraming])
+        cleanup()
+        guard let cg = cg, cg.width > 0, cg.height > 0 else {
+            completion(nil)
+            return
+        }
+        let img = NSImage(cgImage: cg, size: NSSize(width: quartz.width, height: quartz.height))
+        completion(img)
+    }
+
+    // 为每块连接的显示器分别创建独立全屏遮罩窗口(规避 macOS「显示器具有单独的空间」对单窗口跨屏的裁切与 visibleFrame 收缩)
+    func capture(completion: @escaping (NSImage?) -> Void) {
+        cleanup()
+        completed = false
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        NSCursor.crosshair.push()
+        cursorPushed = true
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                self?.finishCapture(on: nil, localRect: nil, completion: completion)
+                return nil
             }
-            // 本视图坐标 → AppKit 全局 → Quartz 全局(左上原点)
-            let globalAK = NSRect(x: union.minX + localRect.minX,
-                                  y: union.minY + localRect.minY,
-                                  width: localRect.width, height: localRect.height)
-            // 翻转基准用主屏高度(见 primaryScreenHeight 注释):多屏不等高时用并集高度会整体偏移
-            let primaryH = primaryScreenHeight()
-            let quartz = CGRect(x: globalAK.minX, y: primaryH - globalAK.maxY,
-                                width: globalAK.width, height: globalAK.height)
-            // 截遮罩窗口「下方」的真实画面(压暗层不会进图);此刻窗口仍在屏上
-            let winID = CGWindowID(win.windowNumber)
-            let cg = CGWindowListCreateImage(quartz, .optionOnScreenBelowWindow, winID,
-                                             [.bestResolution, .boundsIgnoreFraming])
-            win.orderOut(nil); self.window = nil
-            guard let cg = cg, cg.width > 0, cg.height > 0 else { completion(nil); return }
-            let img = NSImage(cgImage: cg, size: NSSize(width: quartz.width, height: quartz.height))
-            completion(img)
+            return event
+        }
+
+        var views: [SelectionView] = []
+        let mouseLoc = NSEvent.mouseLocation
+        var initialKeyWin: CaptureWindow?
+
+        for screen in screens {
+            let sf = screen.frame
+            let win = CaptureWindow(contentRect: sf, styleMask: .borderless,
+                                    backing: .buffered, defer: false)
+            win.setFrame(sf, display: false)
+            win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+            win.backgroundColor = .clear
+            win.isOpaque = false
+            win.hasShadow = false
+            win.ignoresMouseEvents = false
+            win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+
+            let view = SelectionView(frame: NSRect(origin: .zero, size: sf.size))
+            view.autoresizingMask = [.width, .height]
+            win.contentView = view
+            windows.append(win)
+            views.append(view)
+
+            if sf.contains(mouseLoc) {
+                initialKeyWin = win
+            }
+
+            view.onBeginSelection = { [weak view] in
+                for v in views where v !== view {
+                    v.clearSelection()
+                }
+            }
+            view.onFinish = { [weak self, weak win] localRect in
+                self?.finishCapture(on: win, localRect: localRect, completion: completion)
+            }
         }
 
         NSApp.activate(ignoringOtherApps: true)
-        win.makeKeyAndOrderFront(nil)
-        win.makeFirstResponder(view)
+        let keyWin = initialKeyWin ?? windows.first
+        for win in windows where win !== keyWin {
+            win.orderFrontRegardless()
+        }
+        if let keyWin = keyWin {
+            keyWin.makeKeyAndOrderFront(nil)
+            if let v = keyWin.contentView {
+                keyWin.makeFirstResponder(v)
+            }
+        }
     }
 
     // NSImage → 缩放(最长边 ≤ 2048)→ PNG → base64 data URL

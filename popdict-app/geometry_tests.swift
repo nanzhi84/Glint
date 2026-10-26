@@ -147,6 +147,42 @@ struct GeoTests {
                 && insideSafeArea(cOverflowTL, visible: vf),
                "展开态浮窗超出左上边界: clampRectToVisible 严格夹紧在 vf.insetBy(dx:6, dy:6) 内")
 
+        // —— 10. 多屏框选截图坐标转换 (captureQuartzRect) ——
+        let mainScreenFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+        let qMain = captureQuartzRect(
+            localRect: NSRect(x: 100, y: 200, width: 300, height: 400),
+            screenFrame: mainScreenFrame,
+            primaryScreenHeight: 1117
+        )
+        expect(approx(qMain.origin.x, 100)
+                && approx(qMain.origin.y, 517)
+                && approx(qMain.width, 300)
+                && approx(qMain.height, 400),
+               "主屏(Screen 0)框选坐标转换: localRect(100,200,300,400) → Quartz(100,517,300,400)")
+
+        let subScreenFrame = NSRect(x: -2560, y: -116, width: 2560, height: 1440)
+        let qSubMid = captureQuartzRect(
+            localRect: NSRect(x: 500, y: 300, width: 600, height: 400),
+            screenFrame: subScreenFrame,
+            primaryScreenHeight: 1117
+        )
+        expect(approx(qSubMid.origin.x, -2060)
+                && approx(qSubMid.origin.y, 533)
+                && approx(qSubMid.width, 600)
+                && approx(qSubMid.height, 400),
+               "左侧负坐标不等高副屏(Screen 1)中部框选转换: localRect(500,300,600,400) → Quartz(-2060,533,600,400)")
+
+        let qSubTop = captureQuartzRect(
+            localRect: NSRect(x: 100, y: 1250, width: 200, height: 150),
+            screenFrame: subScreenFrame,
+            primaryScreenHeight: 1117
+        )
+        expect(approx(qSubTop.origin.x, -2460)
+                && approx(qSubTop.origin.y, -167)
+                && approx(qSubTop.width, 200)
+                && approx(qSubTop.height, 150),
+               "左侧不等高副屏高于主屏顶部区域框选转换: localRect(100,1250,200,150) → Quartz(-2460,-167,200,150)")
+
         print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
         exit(failures == 0 ? 0 : 1)
     }

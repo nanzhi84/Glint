@@ -250,9 +250,12 @@ func chatStream(_ messages: [[String: Any]],
 
 // MARK: - 冒泡/译文浮窗
 
-// 可成为 key 的浮窗:让用户能在结果里拖选译文 + ⌘C
+// 可成为 key 的浮窗:让用户能在结果里拖选译文 + ⌘C(并禁止 AppKit 跨屏重定向已由 clampToScreen 计算好的坐标)
 final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
 }
 
 // 可拖动的毛玻璃背板:背景空白处可拖动窗口(文字区仍能选中、按钮/输入框各自处理事件)
@@ -683,7 +686,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         }
         attachedImageDataURL = dataURL
         convo = [(role: "user", content: instruction)]
-        let vf = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let vf = screenFor(point: NSEvent.mouseLocation).visibleFrame
         let topLeft = NSPoint(x: vf.midX - savedPopupSize().width / 2, y: vf.maxY - 80)
         installConversationPanel(topLeft: topLeft)
         // 顶部:缩略图 + 指令气泡(在 sendTurn 之前插入,流式答案接其后)
@@ -1324,6 +1327,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 NSApp.terminate(nil)
                             }
                         }
+                    }
+                } else if mode == "capture_screens" {
+                    let rc = RegionCapture()
+                    self.activeCapture = rc
+                    rc.capture { _ in }
+                    let screenFrames = NSScreen.screens.map { NSStringFromRect($0.frame) }
+                    let winFrames = rc.activeWindowFrames().map { NSStringFromRect($0) }
+                    logLine("UITEST capture_screens screens=\(screenFrames) windows=\(winFrames)")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NSApp.terminate(nil)
                     }
                 } else {
                     self.popup.runDemoExplain()

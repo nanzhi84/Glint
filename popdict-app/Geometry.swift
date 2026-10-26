@@ -29,3 +29,18 @@ func rectAtCursorBottomRight(_ pt: NSPoint, visible vf: CGRect, w: CGFloat, h: C
 func rectNearPoint(_ pt: NSPoint, visible vf: CGRect, w: CGFloat, h: CGFloat) -> NSRect {
     return rectAtCursorBottomRight(pt, visible: vf, w: w, h: h)
 }
+
+// 多屏框选截图坐标转换:
+// 将某一显示器全屏遮罩窗口内的局部选区 localRect(左下原点,相对于该屏幕窗口 frame)
+// 转换为 CGWindowListCreateImage 所需的全局 Quartz 坐标(以主屏左上角为原点,Y 轴向下)。
+func captureQuartzRect(localRect: NSRect, screenFrame: NSRect, primaryScreenHeight: CGFloat) -> CGRect {
+    let globalMinX = screenFrame.minX + localRect.minX
+    let globalMaxY = screenFrame.minY + localRect.maxY
+    return CGRect(
+        x: globalMinX,
+        y: primaryScreenHeight - globalMaxY,
+        width: localRect.width,
+        height: localRect.height
+    )
+}
+
