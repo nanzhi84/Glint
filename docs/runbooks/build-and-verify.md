@@ -22,23 +22,24 @@ yoryon-harness run provider-tests -- bash -c 'swiftc -o "$HARNESS_WORK_DIR/prov_
 每次修改 [popdict-app/](../../popdict-app) 下的 Swift 源码后，必须按顺序执行：
 
 ```bash
-# 1. 编译 Universal 二进制并打包 popdict.app 与 popdict.dmg
+# 1. 编译 Universal 二进制并打包 Glint.app 与 Glint.dmg
 cd popdict-app && bash build.sh
 
-# 2. 若 /Applications/popdict.app 已存在，停止运行中的进程、替换安装并重启
+# 2. 停止运行中的进程、替换安装 /Applications/Glint.app 并重启
+pkill -x Glint || true
 pkill -x popdict || true
-rm -rf /Applications/popdict.app
-cp -R popdict.app /Applications/popdict.app
-codesign --verify --deep --strict --verbose=2 /Applications/popdict.app
-open /Applications/popdict.app
+rm -rf /Applications/popdict.app /Applications/Glint.app
+cp -R Glint.app /Applications/Glint.app
+codesign --verify --deep --strict --verbose=2 /Applications/Glint.app
+open /Applications/Glint.app
 ```
 
 ## 3. UI 渲染与进程自验收
 
 - **本地 UI 自测（无需联网）**：
   ```bash
-  POPDICT_UITEST=translate /Applications/popdict.app/Contents/MacOS/popdict
+  GLINT_UITEST=translate /Applications/Glint.app/Contents/MacOS/Glint
   ```
 - **运行状态与日志核查**：
-  - 检查进程存活：`pgrep -fl /Applications/popdict.app/Contents/MacOS/popdict`
-  - 检查运行日志：`tail -n 50 ~/.config/popdict/popdict.log`
+  - 检查进程存活：`pgrep -fl /Applications/Glint.app/Contents/MacOS/Glint`
+  - 检查运行日志：`tail -n 50 ~/.config/glint/glint.log`

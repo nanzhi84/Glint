@@ -447,8 +447,8 @@ struct ProviderTests {
                "AppConfig.isOfficialPreset / officialPreset(named:): 准确识别官方四大预设并返回内置固定 format/baseURL，自定义厂商返回 false/nil")
 
         // —— 10. 开机启动管理器 LaunchAtLogin 契约 ——
-        let tmpPlistPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("com.yoryon.popdict.test.\(UUID().uuidString).plist")
-        let fakeExecPath = "/Applications/popdict.app/Contents/MacOS/popdict"
+        let tmpPlistPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("com.yoryon.glint.test.\(UUID().uuidString).plist")
+        let fakeExecPath = "/Applications/Glint.app/Contents/MacOS/Glint"
         defer { try? FileManager.default.removeItem(atPath: tmpPlistPath) }
 
         let enableOK = LaunchAtLogin.setEnabled(true, plistPath: tmpPlistPath, executablePath: fakeExecPath)
@@ -463,7 +463,7 @@ struct ProviderTests {
 
         expect(enableOK
                 && enabledAfterWrite
-                && plistLabel == "com.yoryon.popdict"
+                && plistLabel == "com.yoryon.glint"
                 && plistRunAtLoad == true
                 && plistArgs == [fakeExecPath]
                 && disableOK

@@ -2,12 +2,13 @@ import Foundation
 
 // ============================================================
 // 配置模型与多协议适配层 (OpenAI / Anthropic / Gemini Compatible)
-// 持久化到 ~/.config/popdict/config.json;官方内置 DeepSeek、Gemini、MiMo 三大厂商。
+// 持久化到 ~/.config/glint/config.json;自动平滑迁移旧版 ~/.config/popdict/config.json。
 // ============================================================
 
-let kConfigDir = (("~/.config/popdict" as NSString).expandingTildeInPath)
-let kLogPath = kConfigDir + "/popdict.log"
-let kKeyPath = kConfigDir + "/mimo_key"          // 旧版单 key 文件,仅用于首启迁移到 config.json
+let kConfigDir = (("~/.config/glint" as NSString).expandingTildeInPath)
+let kLegacyConfigDir = (("~/.config/popdict" as NSString).expandingTildeInPath)
+let kLogPath = kConfigDir + "/glint.log"
+let kKeyPath = kLegacyConfigDir + "/mimo_key"    // 旧版单 key 文件,仅用于首启迁移到 config.json
 
 enum APIFormat: String, Codable, CaseIterable, Equatable {
     case openai = "openai"
@@ -459,6 +460,7 @@ final class AppConfig {
     private(set) var translatePrompt: String = AppConfig.defaultTranslatePrompt
     private(set) var explainPrompt: String = AppConfig.defaultExplainPrompt
     private var path: String { kConfigDir + "/config.json" }
+    private var legacyPath: String { kLegacyConfigDir + "/config.json" }
 
     var resolvedTranslatePrompt: String {
         AppConfig.resolvePrompt(translatePrompt, language: language)
@@ -551,9 +553,13 @@ final class AppConfig {
         return result
     }
 
-    // 启动调用一次。无文件/损坏 → 预置 + 迁移旧 mimo_key,并落盘;有文件 → 自动补齐新增官方预置
+    // 启动调用一次。无文件/损坏 → 迁移 ~/.config/popdict/config.json 或预置 + 迁移旧 mimo_key,并落盘;有文件 → 自动补齐新增官方预置
     func load() {
-        if let data = FileManager.default.contents(atPath: path),
+        let fm = FileManager.default
+        let primaryData = fm.contents(atPath: path)
+        let migratedFromLegacy = (primaryData == nil)
+        let rawData = primaryData ?? fm.contents(atPath: legacyPath)
+        if let data = rawData,
            let stored = try? JSONDecoder().decode(Stored.self, from: data),
            !stored.providers.isEmpty {
             let merged = AppConfig.mergeOfficialPresets(into: stored.providers)
@@ -566,7 +572,7 @@ final class AppConfig {
             let rawExplain = stored.explainPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let isLegacyExplainDefault = rawExplain.contains("- 排版纪律:列表项 `- ` 内部**仅对核心术语或短标签保留加粗**")
             explainPrompt = (rawExplain.isEmpty || isLegacyExplainDefault) ? AppConfig.defaultExplainPrompt : (stored.explainPrompt ?? AppConfig.defaultExplainPrompt)
-            if merged != stored.providers || stored.language == nil || stored.translatePrompt == nil || stored.explainPrompt == nil || isLegacyExplainDefault {
+            if migratedFromLegacy || merged != stored.providers || stored.language == nil || stored.translatePrompt == nil || stored.explainPrompt == nil || isLegacyExplainDefault {
                 save()
             }
             return
@@ -627,9 +633,10 @@ final class AppConfig {
 }
 
 enum LaunchAtLogin {
-    static let defaultPlistPath = ("~/Library/LaunchAgents/com.yoryon.popdict.plist" as NSString).expandingTildeInPath
-    static let defaultExecutablePath = "/Applications/popdict.app/Contents/MacOS/popdict"
-    static let label = "com.yoryon.popdict"
+    static let defaultPlistPath = ("~/Library/LaunchAgents/com.yoryon.glint.plist" as NSString).expandingTildeInPath
+    static let legacyPlistPath = ("~/Library/LaunchAgents/com.yoryon.popdict.plist" as NSString).expandingTildeInPath
+    static let defaultExecutablePath = "/Applications/Glint.app/Contents/MacOS/Glint"
+    static let label = "com.yoryon.glint"
 
     static func isEnabled(plistPath: String = defaultPlistPath) -> Bool {
         guard FileManager.default.fileExists(atPath: plistPath),
@@ -647,6 +654,9 @@ enum LaunchAtLogin {
         executablePath: String = defaultExecutablePath
     ) -> Bool {
         let fm = FileManager.default
+        if plistPath == defaultPlistPath && fm.fileExists(atPath: legacyPlistPath) {
+            try? fm.removeItem(atPath: legacyPlistPath)
+        }
         if enabled {
             let parent = (plistPath as NSString).deletingLastPathComponent
             try? fm.createDirectory(atPath: parent, withIntermediateDirectories: true)

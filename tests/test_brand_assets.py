@@ -36,28 +36,28 @@ class TestBrandLogo(unittest.TestCase):
         )
 
     def test_icns_file_has_valid_magic_header_and_bundle_plist_entry(self) -> None:
-        icns_path = REPO_ROOT / "popdict-app" / "popdict.icns"
+        icns_path = REPO_ROOT / "popdict-app" / "Glint.icns"
         self.assertTrue(icns_path.is_file(), f"Missing app icon file: {icns_path}")
 
         icns_bytes = icns_path.read_bytes()
         self.assertGreater(
             len(icns_bytes),
             1024,
-            "popdict.icns must be larger than 1024 bytes",
+            "Glint.icns must be larger than 1024 bytes",
         )
         self.assertEqual(
             icns_bytes[:4],
             b"icns",
-            "popdict.icns must start with 'icns' magic header",
+            "Glint.icns must start with 'icns' magic header",
         )
 
         bundle_icns_path = (
             REPO_ROOT
             / "popdict-app"
-            / "popdict.app"
+            / "Glint.app"
             / "Contents"
             / "Resources"
-            / "popdict.icns"
+            / "Glint.icns"
         )
         self.assertTrue(
             bundle_icns_path.is_file(),
@@ -66,12 +66,14 @@ class TestBrandLogo(unittest.TestCase):
         self.assertEqual(bundle_icns_path.read_bytes()[:4], b"icns")
 
         plist_path = (
-            REPO_ROOT / "popdict-app" / "popdict.app" / "Contents" / "Info.plist"
+            REPO_ROOT / "popdict-app" / "Glint.app" / "Contents" / "Info.plist"
         )
         self.assertTrue(plist_path.is_file(), f"Missing Info.plist: {plist_path}")
         plist_text = plist_path.read_text(encoding="utf-8")
         self.assertIn("<key>CFBundleIconFile</key>", plist_text)
-        self.assertIn("<string>popdict.icns</string>", plist_text)
+        self.assertIn("<string>Glint.icns</string>", plist_text)
+        self.assertIn("<string>com.yoryon.glint</string>", plist_text)
+        self.assertIn("<string>Glint</string>", plist_text)
 
     def test_brand_logo_module_renders_template_menubar_icon_and_app_icon_png(
         self,
@@ -185,6 +187,11 @@ class TestReadmePortal(unittest.TestCase):
             "images/logo.svg",
             head_chunk,
             "README.md top banner must reference images/logo.svg",
+        )
+        self.assertIn(
+            "# Glint",
+            head_chunk,
+            "README.md top banner must include '# Glint' title",
         )
         self.assertTrue(
             "images/demo.gif" in head_chunk or "images/demo.mp4" in head_chunk,

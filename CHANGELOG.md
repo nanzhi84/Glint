@@ -9,9 +9,10 @@
 - 新增多协议适配层（支持 `OpenAI 兼容`、`Anthropic 兼容`、`Gemini 兼容` 三种接口格式），内置官方支持 **DeepSeek**、**Gemini**（`gemini-3.8-flash`）、**Vertex AI**（`aiplatform.googleapis.com`）与 **MiMo** 四大服务商及前置彩色品牌 Logo。
 - 新增「在开机时启动」（`LaunchAtLogin`）能力。
 - 新增「语言」偏好设置标签页：内置 11 种常用目标语言（简体中文、繁体中文、英语、日语、韩语、俄语、法语、德语、西班牙语等），翻译与解释共用 `<languages>` 语言占位符，支持用户自定义编辑翻译与解释 Prompt（删除 `<languages>` 占位符后自动按自定义固定指令生效），彻底移除旧版「单汉字即判中译英」的误判逻辑。
-- 全新设计 Claude 暖纸书卷风（`#FAF9F5` + `#D97757` 赤陶星芒 `✦`）品牌矢量 Logo（`images/logo.svg`）、macOS 原生应用图标（`popdict.icns`）与 18×18 自适应明暗菜单栏矢量图标（`BrandLogo.swift`）。
+- 全新设计 Claude 暖纸书卷风（`#FAF9F5` + 开口灵光气泡 + `#D97757` 赤陶星芒 `✦`）品牌矢量 Logo（`images/logo.svg`）、macOS 原生应用图标（`Glint.icns`）与 18×18 自适应明暗菜单栏矢量图标（`BrandLogo.swift`）。
 
 ### Changed
+- **项目正式更名为 `Glint`**：应用包名升级为 `Glint.app` / `Glint.dmg`（Bundle ID `com.yoryon.glint`），配置与日志目录升级为 `~/.config/glint/`（首次启动自动从旧版 `~/.config/popdict/config.json` 平滑无损迁移），开机自启 LaunchAgent 升级为 `com.yoryon.glint.plist`。
 - 重写 `README.md` 门面文档（居中品牌 Logo、三合一动态演示视频 `images/demo.mp4` / `images/demo.gif`、Core ideas、Get started、Learn more），集中展示任意应用划词翻译、划词解释与 `⌃⌥E` 截图解释三大核心工作流。
 - 精简菜单栏下拉菜单（仅保留「设置…」与「退出」），并将偏好设置窗口升级为 macOS 原生工具栏图标样式的 **「基础」**、**「权限」**、**「服务商」**、**「语言」** 四 Tab 布局。
 - 改进划词气泡与浮窗落点定位逻辑，精确锚定于鼠标光标右下角。

@@ -160,20 +160,30 @@ class TestLanguageConfigPersistenceAndUI(unittest.TestCase):
     def test_legacy_config_json_defaults_and_custom_prompts_roundtrip(self) -> None:
         probe_source = """import Foundation
 
-let configDir = ("~/.config/popdict" as NSString).expandingTildeInPath
-let configPath = configDir + "/config.json"
+let legacyConfigDir = ("~/.config/popdict" as NSString).expandingTildeInPath
+let legacyConfigPath = legacyConfigDir + "/config.json"
+let glintConfigDir = ("~/.config/glint" as NSString).expandingTildeInPath
+let glintConfigPath = glintConfigDir + "/config.json"
 let fm = FileManager.default
-let backupData = fm.contents(atPath: configPath)
+let backupLegacyData = fm.contents(atPath: legacyConfigPath)
+let backupGlintData = fm.contents(atPath: glintConfigPath)
 defer {
-    if let data = backupData {
-        try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
-        try? data.write(to: URL(fileURLWithPath: configPath), options: .atomic)
+    if let data = backupLegacyData {
+        try? fm.createDirectory(atPath: legacyConfigDir, withIntermediateDirectories: true)
+        try? data.write(to: URL(fileURLWithPath: legacyConfigPath), options: .atomic)
     } else {
-        try? fm.removeItem(atPath: configPath)
+        try? fm.removeItem(atPath: legacyConfigPath)
+    }
+    if let data = backupGlintData {
+        try? fm.createDirectory(atPath: glintConfigDir, withIntermediateDirectories: true)
+        try? data.write(to: URL(fileURLWithPath: glintConfigPath), options: .atomic)
+    } else {
+        try? fm.removeItem(atPath: glintConfigPath)
     }
 }
 
-try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+try? fm.removeItem(atPath: glintConfigPath)
+try? fm.createDirectory(atPath: legacyConfigDir, withIntermediateDirectories: true)
 let legacyJSON = \"\"\"
 {
   "active": "DeepSeek",
@@ -189,9 +199,19 @@ let legacyJSON = \"\"\"
   ]
 }
 \"\"\"
-try! legacyJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+try! legacyJSON.write(toFile: legacyConfigPath, atomically: true, encoding: .utf8)
 
 AppConfig.shared.load()
+guard fm.fileExists(atPath: glintConfigPath) else {
+    fputs("FAIL: ~/.config/glint/config.json was not automatically created/migrated on disk\\n", stderr)
+    exit(1)
+}
+guard AppConfig.shared.activeName == "DeepSeek",
+      let ds = AppConfig.shared.providers.first(where: { $0.name == "DeepSeek" }),
+      ds.apiKey == "sk-test" else {
+    fputs("FAIL: migrated activeName or DeepSeek apiKey not preserved\\n", stderr)
+    exit(1)
+}
 guard AppConfig.shared.language == "Simplified Chinese" else {
     fputs("FAIL: legacy config should default language to Simplified Chinese, got \\(AppConfig.shared.language)\\n", stderr)
     exit(1)
@@ -233,11 +253,24 @@ guard AppConfig.shared.resolvedExplainPrompt == "Custom explain in Russian clear
     exit(1)
 }
 
-guard let diskText = try? String(contentsOfFile: configPath, encoding: .utf8),
+guard let diskText = try? String(contentsOfFile: glintConfigPath, encoding: .utf8),
       diskText.contains("Russian"),
       diskText.contains(customTranslate),
       diskText.contains(customExplain) else {
-    fputs("FAIL: config.json on disk missing saved language or custom prompts\\n", stderr)
+    fputs("FAIL: ~/.config/glint/config.json on disk missing saved language or custom prompts\\n", stderr)
+    exit(1)
+}
+
+guard LaunchAtLogin.label == "com.yoryon.glint" else {
+    fputs("FAIL: LaunchAtLogin.label expected com.yoryon.glint, got \\(LaunchAtLogin.label)\\n", stderr)
+    exit(1)
+}
+guard LaunchAtLogin.defaultExecutablePath == "/Applications/Glint.app/Contents/MacOS/Glint" else {
+    fputs("FAIL: LaunchAtLogin.defaultExecutablePath expected /Applications/Glint.app/Contents/MacOS/Glint, got \\(LaunchAtLogin.defaultExecutablePath)\\n", stderr)
+    exit(1)
+}
+guard LaunchAtLogin.defaultPlistPath.hasSuffix("/Library/LaunchAgents/com.yoryon.glint.plist") else {
+    fputs("FAIL: LaunchAtLogin.defaultPlistPath expected suffix /Library/LaunchAgents/com.yoryon.glint.plist, got \\(LaunchAtLogin.defaultPlistPath)\\n", stderr)
     exit(1)
 }
 

@@ -4,11 +4,11 @@ import Carbon.HIToolbox
 import os.log
 
 // ============================================================
-// popdict —— 划词翻译 / 解释 / 截图解释 菜单栏小程序
-// 选中文字 → 选区旁冒泡「🌐 翻译」「💡 解释」→ 点击 → MiMo → 同处显示结果
-//   翻译:含中文 → 英文;其它 → 简体中文
-//   解释:用简体中文把概念/代码讲明白,MiMo 流式逐字输出(打字机)
-//   截图解释:⌃⌥E / 菜单「📷 截图解释」框选屏幕 → MiMo 多模态看图讲解(可追问)
+// Glint —— 划词翻译 / 解释 / 截图解释 菜单栏小程序
+// 选中文字 → 选区旁冒泡「🌐 翻译」「💡 解释」→ 点击 → 同处显示结果
+//   翻译:自动识别源语言并翻译为「语言」设置中选定的目标语言
+//   解释:以目标语言把概念/代码讲明白,流式逐字输出(打字机)
+//   截图解释:⌃⌥E 框选屏幕 → 多模态看图讲解(可追问)
 // ============================================================
 
 // MARK: - 路径 / 配置目录(最先初始化,保证日志可写,常量见 Config.swift)
@@ -32,7 +32,7 @@ let _bootstrap: Bool = ensureConfigDir()
 
 // MARK: - 日志(自愈 + NSLog 兜底)
 
-let kLog = OSLog(subsystem: "com.yoryon.popdict", category: "popdict")
+let kLog = OSLog(subsystem: "com.yoryon.glint", category: "glint")
 
 func tsNow() -> String {
     let f = DateFormatter()
@@ -139,7 +139,7 @@ func selectedTextViaCopy() -> String? {
 
 func translate(_ text: String, completion: @escaping (String?, String?) -> Void) {
     guard let prov = AppConfig.shared.active, !prov.apiKey.isEmpty else {
-        completion(nil, "没配置 API Key。请点菜单栏 🌐 →「设置…」→「自定义厂商」填入当前厂商的 Key")
+        completion(nil, "没配置 API Key。请点菜单栏 Glint 图标 →「设置…」→「服务商」填入当前服务商的 Key")
         return
     }
     let sys = AppConfig.shared.resolvedTranslatePrompt
@@ -180,7 +180,7 @@ func chatStream(_ messages: [[String: Any]],
                 onDone: @escaping (String) -> Void,
                 onError: @escaping (String) -> Void) -> Task<Void, Never>? {
     guard let prov = AppConfig.shared.active, !prov.apiKey.isEmpty else {
-        onError("没配置 API Key。请点菜单栏 🌐 →「设置…」→「自定义厂商」填入当前厂商的 Key")
+        onError("没配置 API Key。请点菜单栏 Glint 图标 →「设置…」→「服务商」填入当前服务商的 Key")
         return nil
     }
     guard let req = prov.buildRequest(messages: messages, temperature: 0.5, maxTokens: kMaxTokens, stream: true) else {
@@ -1933,10 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
 
         // UI 截图自测(不建事件 tap / 不请求权限),便于截屏验证真实渲染:
-        //   POPDICT_UITEST=translate → 翻译流程(本地、不走网络)
-        //   POPDICT_UITEST=settings  → 设置窗口双 Tab 自检(权限检查 + 自定义厂商)
+        //   GLINT_UITEST=translate → 翻译流程(本地、不走网络)
+        //   GLINT_UITEST=settings  → 设置窗口四 Tab 自检
         //   其它值 → 解释会话流程(走真实 API)
-        if let mode = ProcessInfo.processInfo.environment["POPDICT_UITEST"] {
+        if let mode = ProcessInfo.processInfo.environment["GLINT_UITEST"] ?? ProcessInfo.processInfo.environment["POPDICT_UITEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self = self else { return }
                 if mode == "translate" {
@@ -2042,7 +2042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let btn = item.button {
             btn.image = BrandLogo.menuBarIcon()
             btn.imagePosition = .imageOnly
-            btn.toolTip = "popdict"
+            btn.toolTip = "Glint"
         }
         item.menu = buildMenu()
         statusItem = item
@@ -2069,7 +2069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppConfig.shared.active?.vision == true else {
             let a = NSAlert()
             a.messageText = "当前服务商不支持看图"
-            a.informativeText = "当前使用的「\(AppConfig.shared.active?.name ?? "?")」没有勾选「支持看图」。请点菜单栏 🌐 →「设置…」→「服务商」,切换到一个支持看图的服务商(如 Vertex AI、Gemini、MiMo)或勾选「支持看图」。"
+            a.informativeText = "当前使用的「\(AppConfig.shared.active?.name ?? "?")」没有勾选「支持看图」。请点菜单栏 Glint 图标 →「设置…」→「服务商」,切换到一个支持看图的服务商(如 Vertex AI、Gemini、MiMo)或勾选「支持看图」。"
             a.addButton(withTitle: "打开设置"); a.addButton(withTitle: "取消")
             NSApp.activate(ignoringOtherApps: true)
             if a.runModal() == .alertFirstButtonReturn { settings.show(tab: 2) }
@@ -2082,13 +2082,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if granted {
                 // 用户刚在系统弹窗里授权:本进程通常要重开 App 才真正生效
                 a.messageText = "屏幕录制权限已授予"
-                a.informativeText = "权限已开启。首次授予后通常需要重新打开 popdict 才会真正生效,然后再用 ⌃⌥E 截图解释。"
+                a.informativeText = "权限已开启。首次授予后通常需要重新打开 Glint 才会真正生效,然后再用 ⌃⌥E 截图解释。"
                 a.addButton(withTitle: "好的")
                 a.runModal()
             } else {
                 // 之前已被拒绝(系统不再弹窗)或刚拒绝:引导去设置手动打开
                 a.messageText = "需要「屏幕录制」权限"
-                a.informativeText = "截图解释要用到屏幕录制权限。请在 系统设置 → 隐私与安全性 → 屏幕录制 里打开 popdict。\n\n注意:首次授予后通常需要重新打开 popdict 才会生效。"
+                a.informativeText = "截图解释要用到屏幕录制权限。请在 系统设置 → 隐私与安全性 → 屏幕录制 里打开 Glint。\n\n注意:首次授予后通常需要重新打开 Glint 才会生效。"
                 a.addButton(withTitle: "打开设置")
                 a.addButton(withTitle: "取消")
                 if a.runModal() == .alertFirstButtonReturn { openScreenRecordingSettings() }

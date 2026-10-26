@@ -397,7 +397,7 @@ final class SettingsController: NSObject {
         scrTop.orientation = .horizontal
         scrTop.spacing = 10
         scrTop.alignment = .centerY
-        let scrDesc = NSTextField(wrappingLabelWithString: "用于 ⌃⌥E 框选屏幕区域后截取画面交由多模态模型讲解。首次开启后通常需重新打开 popdict 生效。")
+        let scrDesc = NSTextField(wrappingLabelWithString: "用于 ⌃⌥E 框选屏幕区域后截取画面交由多模态模型讲解。首次开启后通常需重新打开 Glint 生效。")
         scrDesc.font = .systemFont(ofSize: 11)
         scrDesc.textColor = .secondaryLabelColor
         scrDesc.preferredMaxLayoutWidth = 310
@@ -905,14 +905,14 @@ final class SettingsController: NSObject {
         if Set(working.map { $0.name }).count != working.count { alert("服务商名字不能重复"); return }
         let activeName = working[max(0, min(activeIndex, working.count - 1))].name
         if !AppConfig.shared.setProviders(working, active: activeName) {
-            alert("保存失败:无法写入配置文件(~/.config/popdict)。请检查磁盘空间或目录权限。"); return
+            alert("保存失败:无法写入配置文件(~/.config/glint)。请检查磁盘空间或目录权限。"); return
         }
         if !AppConfig.shared.setLanguageAndPrompts(
             language: workingLanguage,
             translatePrompt: workingTranslatePrompt,
             explainPrompt: workingExplainPrompt
         ) {
-            alert("保存语言与 Prompt 配置失败:无法写入配置文件(~/.config/popdict)。"); return
+            alert("保存语言与 Prompt 配置失败:无法写入配置文件(~/.config/glint)。"); return
         }
         gAppDelegate?.refreshMenu()
         window?.close()

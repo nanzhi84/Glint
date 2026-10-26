@@ -1,105 +1,62 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
   <defs>
-    <!-- 暖纸主背景渐变 (#FAF9F5 -> #F1ECE1) -->
-    <linearGradient id="warmPaperBg" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
+    <!-- 1. 外层暖纸 Squircle 主背景渐变 (#FAF9F5 -> #EAE2D2) -->
+    <linearGradient id="warmPaperBg" x1="64" y1="38" x2="448" y2="474" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#FAF9F5"/>
-      <stop offset="55%" stop-color="#F6F3EC"/>
-      <stop offset="100%" stop-color="#EDE7DA"/>
+      <stop offset="55%" stop-color="#F5F1E8"/>
+      <stop offset="100%" stop-color="#EAE2D2"/>
     </linearGradient>
 
-    <!-- 弹出气泡卡片主面 (#FFFFFF -> #FAF9F5) -->
-    <linearGradient id="popupCardBg" x1="120" y1="108" x2="392" y2="376" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="45%" stop-color="#FAF9F5"/>
-      <stop offset="100%" stop-color="#F4F0E6"/>
+    <!-- 2. 深炭墨色线条渐变 (#262522 -> #141413) -->
+    <linearGradient id="inkStrokeGrad" x1="108" y1="136" x2="368" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#262522"/>
+      <stop offset="100%" stop-color="#141413"/>
     </linearGradient>
 
-    <!-- 赤陶色星芒微渐变 (#E28363 -> #D97757 -> #C66243) -->
-    <linearGradient id="terracottaGrad" x1="300" y1="96" x2="412" y2="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#E58565"/>
+    <!-- 3. 赤陶色星芒与书卷竖条渐变 (#EE9070 -> #D97757 -> #C05A39) -->
+    <linearGradient id="terracottaGrad" x1="276" y1="100" x2="408" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EE9070"/>
       <stop offset="50%" stop-color="#D97757"/>
-      <stop offset="100%" stop-color="#C46040"/>
+      <stop offset="100%" stop-color="#C05A39"/>
     </linearGradient>
 
     <!-- 外层 Squircle 柔和投影 -->
     <filter id="squircleShadow" x="16" y="20" width="480" height="484" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#141413" flood-opacity="0.10"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#141413" flood-opacity="0.11"/>
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#141413" flood-opacity="0.06"/>
     </filter>
 
-    <!-- 内部弹出卡片立体书页投影 -->
-    <filter id="cardShadow" x="84" y="84" width="356" height="348" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#141413" flood-opacity="0.09"/>
-      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#D97757" flood-opacity="0.06"/>
+    <!-- 中心图标柔和立体投影 -->
+    <filter id="motifShadow" x="76" y="76" width="368" height="360" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#141413" flood-opacity="0.09"/>
     </filter>
   </defs>
 
-  <!-- 1. macOS 圆角矩形底座 (Warm Paper Squircle) -->
+  <!-- 1. macOS 暖纸圆角矩形底座 (Warm Paper Squircle) -->
   <g filter="url(#squircleShadow)">
     <rect x="38" y="38" width="436" height="436" rx="98" fill="url(#warmPaperBg)"/>
-    <rect x="40" y="40" width="432" height="432" rx="96" stroke="#E2DDD0" stroke-width="4"/>
-    <rect x="43" y="43" width="426" height="426" rx="93" stroke="#FFFFFF" stroke-opacity="0.8" stroke-width="2"/>
+    <rect x="40" y="40" width="432" height="432" rx="96" stroke="#DFD8C8" stroke-width="4"/>
+    <rect x="43" y="43" width="426" height="426" rx="93" stroke="#FFFFFF" stroke-opacity="0.88" stroke-width="2"/>
   </g>
 
-  <!-- 2. 背景微倾书页层 (象征原文语境与书卷质感) -->
-  <g transform="rotate(-6 256 248)">
-    <rect x="122" y="114" width="268" height="246" rx="38" fill="#EBE6DA" stroke="#DDD6C6" stroke-width="2.5"/>
-    <line x1="158" y1="162" x2="264" y2="162" stroke="#D5CEC0" stroke-width="6" stroke-linecap="round"/>
-    <line x1="158" y1="188" x2="232" y2="188" stroke="#DDD7C9" stroke-width="6" stroke-linecap="round"/>
-  </g>
+  <!-- 2. 核心图形 (菜单栏图标同款构图: 右上开口气泡 + 左侧赤陶竖条 + 双横线 + 右上赤陶四角星芒 ✦) -->
+  <g filter="url(#motifShadow)">
+    <!-- 右上开口的圆角气泡主轮廓线 (#181816 深炭墨色, 26px 圆头粗线条) -->
+    <path d="M 264 136 H 162 C 132.177 136 108 160.177 108 190 V 296 C 108 325.823 132.177 350 162 350 H 168 L 150 396 L 222 350 H 314 C 343.823 350 368 325.823 368 296 V 252"
+          stroke="url(#inkStrokeGrad)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- 3. 左下角划词选区高亮条与 I-Beam 光标 (象征「选中即出」) -->
-  <g>
-    <!-- 划词高亮胶囊 -->
-    <rect x="96" y="382" width="116" height="28" rx="9" fill="#D97757" fill-opacity="0.16"/>
-    <line x1="112" y1="396" x2="186" y2="396" stroke="#D97757" stroke-width="5.5" stroke-linecap="round" stroke-opacity="0.65"/>
-    <!-- I-Beam 选词光标 -->
-    <line x1="204" y1="376" x2="204" y2="416" stroke="#D97757" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="195" y1="376" x2="213" y2="376" stroke="#D97757" stroke-width="4" stroke-linecap="round"/>
-    <line x1="195" y1="416" x2="213" y2="416" stroke="#D97757" stroke-width="4" stroke-linecap="round"/>
-  </g>
+    <!-- 气泡内左侧书卷竖线 (Anthropic Terracotta #D97757) -->
+    <line x1="166" y1="196" x2="166" y2="292"
+          stroke="url(#terracottaGrad)" stroke-width="26" stroke-linecap="round"/>
 
-  <!-- 4. 主体划词弹出卡片 (带左下角指向选区的气泡尾尖) -->
-  <g filter="url(#cardShadow)">
-    <path d="M152 108 H364 C386.091 108 404 125.909 404 148 V312 C404 334.091 386.091 352 364 352 H222 L176 388 L182 352 H152 C129.909 352 112 334.091 112 312 V148 C112 125.909 129.909 108 152 108 Z"
-          fill="url(#popupCardBg)"/>
-    <path d="M152 108 H364 C386.091 108 404 125.909 404 148 V312 C404 334.091 386.091 352 364 352 H222 L176 388 L182 352 H152 C129.909 352 112 334.091 112 312 V148 C112 125.909 129.909 108 152 108 Z"
-          stroke="#E2DDD0" stroke-width="3" stroke-linejoin="round"/>
-  </g>
+    <!-- 气泡内右侧上下双横线 (上短下长, 深炭墨色) -->
+    <line x1="214" y1="216" x2="274" y2="216"
+          stroke="#181816" stroke-width="24" stroke-linecap="round"/>
+    <line x1="214" y1="272" x2="310" y2="272"
+          stroke="#181816" stroke-width="24" stroke-linecap="round"/>
 
-  <!-- 5. 卡片内左侧 Claude 赤陶色书卷竖条 (呼应三级标题与引用卡片) -->
-  <rect x="142" y="146" width="8" height="168" rx="4" fill="#D97757"/>
-
-  <!-- 6. 经典衬线字母 "P" (代表 Popdict 词典与排版美学, #141413 深炭黑) -->
-  <g fill="#141413">
-    <!-- 顶部与底部衬线横脚 -->
-    <rect x="172" y="150" width="46" height="10" rx="3"/>
-    <rect x="172" y="264" width="52" height="10" rx="3"/>
-    <!-- 主竖干 -->
-    <rect x="186" y="150" width="22" height="124" rx="2"/>
-    <!-- P 字圆弧碗部 -->
-    <path d="M198 150 H236 C264.5 150 282 165.8 282 188.5 C282 211.2 264.5 227 236 227 H198 V213 H232 C249.5 213 260 203.2 260 188.5 C260 173.8 249.5 164 232 164 H198 V150 Z"/>
-  </g>
-
-  <!-- 7. 卡片底部词典释义排版横线与双语对照点缀 -->
-  <rect x="174" y="294" width="136" height="9" rx="4.5" fill="#2D2D2A" fill-opacity="0.78"/>
-  <rect x="174" y="314" width="92" height="8" rx="4" fill="#73726C" fill-opacity="0.45"/>
-  <!-- 右下角轻量地球经纬徽标 (呼应划词翻译) -->
-  <g transform="translate(332, 286)" stroke="#73726C" stroke-opacity="0.65" stroke-width="2.6" fill="none">
-    <circle cx="18" cy="18" r="15"/>
-    <ellipse cx="18" cy="18" rx="7.2" ry="15"/>
-    <line x1="4" y1="18" x2="32" y2="18"/>
-  </g>
-
-  <!-- 8. 右上角赤陶色四角星芒 ✦ (Anthropic Terracotta #D97757, 象征 AI 深度解释) -->
-  <g>
-    <!-- 暖色柔光底座 -->
-    <circle cx="344" cy="168" r="42" fill="#D97757" fill-opacity="0.12"/>
-    <!-- 主四角星芒 -->
-    <path d="M344 118 C344 146 354 156 382 156 C354 156 344 166 344 194 C344 166 334 156 306 156 C334 156 344 146 344 118 Z"
+    <!-- 右上角标志性赤陶色四角星芒 ✦ (#D97757) -->
+    <path d="M 346 100 C 346 149 363 166 412 168 C 363 170 346 187 346 236 C 346 187 329 170 280 168 C 329 166 346 149 346 100 Z"
           fill="url(#terracottaGrad)"/>
-    <!-- 副四角星芒 (右上点缀) -->
-    <path d="M384 182 C384 195 389 200 402 200 C389 200 384 205 384 218 C384 205 379 200 366 200 C379 200 384 195 384 182 Z"
-          fill="#D97757"/>
   </g>
 </svg>
