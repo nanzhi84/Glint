@@ -250,11 +250,150 @@ func chatStream(_ messages: [[String: Any]],
 
 // MARK: - 冒泡/译文浮窗
 
+// 允许 nonactivatingPanel 在后台应用状态下也能正常切换鼠标光标(如译文/解释区的工字形 I-Beam 光标)
+func enableBackgroundCursorSetting() {
+    typealias CGSDefaultConnectionFunc = @convention(c) () -> Int32
+    typealias CGSSetConnectionPropertyFunc = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+    guard let handle = dlopen(nil, RTLD_LAZY),
+          let connSym = dlsym(handle, "_CGSDefaultConnection"),
+          let setSym = dlsym(handle, "CGSSetConnectionProperty") else { return }
+    let getConn = unsafeBitCast(connSym, to: CGSDefaultConnectionFunc.self)
+    let setProp = unsafeBitCast(setSym, to: CGSSetConnectionPropertyFunc.self)
+    let cid = getConn()
+    _ = setProp(cid, cid, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+}
+
 // 可成为 key 的浮窗:让用户能在结果里拖选译文 + ⌘C(并禁止 AppKit 跨屏重定向已由 clampToScreen 计算好的坐标)
 final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         return frameRect
+    }
+}
+
+// 可选中文本视图:仅在鼠标位于真实文字字形上(或正在拖选文字)时显示工字形光标(I-Beam),空白区域保持箭头光标
+final class SelectableTextView: NSTextView {
+    private var cursorTrackingArea: NSTrackingArea?
+
+    override var needsPanelToBecomeKey: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = cursorTrackingArea { removeTrackingArea(t) }
+        let t = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(t)
+        cursorTrackingArea = t
+    }
+
+    // 禁用 NSTextView 默认把整块 visibleRect 设为 I-Beam 的行为,完全按字形命中判定
+    override func resetCursorRects() {}
+
+    // 判断视图坐标 pt 是否精确落在可见文字字形上(排除行尾空白、段落下方空白、空行与图片附件)
+    private func isPointOverText(_ pt: NSPoint) -> Bool {
+        guard bounds.contains(pt),
+              let lm = layoutManager,
+              let tc = textContainer,
+              let storage = textStorage,
+              storage.length > 0 else { return false }
+        lm.ensureLayout(for: tc)
+        let containerPt = NSPoint(x: pt.x - textContainerOrigin.x, y: pt.y - textContainerOrigin.y)
+        let used = lm.usedRect(for: tc)
+        guard used.contains(containerPt) else { return false }
+
+        var lineGlyphRange = NSRange(location: 0, length: 0)
+        let glyphIdx = lm.glyphIndex(for: containerPt, in: tc, fractionOfDistanceThroughGlyph: nil)
+        guard glyphIdx < lm.numberOfGlyphs else { return false }
+
+        let lineUsed = lm.lineFragmentUsedRect(forGlyphAt: glyphIdx, effectiveRange: &lineGlyphRange)
+        guard lineUsed.contains(containerPt) else { return false }
+
+        let charIdx = lm.characterIndexForGlyph(at: glyphIdx)
+        guard charIdx < storage.length else { return false }
+
+        if storage.attribute(.attachment, at: charIdx, effectiveRange: nil) != nil {
+            return false
+        }
+
+        let lineCharRange = lm.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+        let nsStr = storage.string as NSString
+        let lineStr = nsStr.substring(with: lineCharRange)
+        if lineStr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+
+        var firstVisibleGlyphX = lineUsed.minX
+        for ci in lineCharRange.location ..< NSMaxRange(lineCharRange) {
+            let ch = nsStr.character(at: ci)
+            if ch != 0x20 && ch != 0x09 && ch != 0x0A && ch != 0x0D {
+                let gi = lm.glyphIndexForCharacter(at: ci)
+                let gr = lm.boundingRect(forGlyphRange: NSRange(location: gi, length: 1), in: tc)
+                firstVisibleGlyphX = gr.minX
+                break
+            }
+        }
+        return containerPt.x >= firstVisibleGlyphX - 1 && containerPt.x <= lineUsed.maxX + 1
+    }
+
+    private func updateCursorForCurrentMouse() {
+        guard let win = window else {
+            NSCursor.arrow.set()
+            return
+        }
+        let pt = convert(win.mouseLocationOutsideOfEventStream, from: nil)
+        if isPointOverText(pt) {
+            NSCursor.iBeam.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        updateCursorForCurrentMouse()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateCursorForCurrentMouse()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateCursorForCurrentMouse()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        super.scrollWheel(with: event)
+        updateCursorForCurrentMouse()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let pt = convert(event.locationInWindow, from: nil)
+        guard isPointOverText(pt) else {
+            setSelectedRange(NSRange(location: 0, length: 0))
+            NSCursor.arrow.set()
+            window?.performDrag(with: event)
+            return
+        }
+        window?.makeKey()
+        NSCursor.iBeam.set()
+        let dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { ev in
+            NSCursor.iBeam.set()
+            return ev
+        }
+        super.mouseDown(with: event)
+        if let dragMonitor = dragMonitor {
+            NSEvent.removeMonitor(dragMonitor)
+        }
+        updateCursorForCurrentMouse()
     }
 }
 
@@ -282,11 +421,12 @@ final class HoverButton: NSButton {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let t = trackingAreaRef { removeTrackingArea(t) }
-        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways], owner: self, userInfo: nil)
         addTrackingArea(t)
         trackingAreaRef = t
     }
-    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseEntered(with event: NSEvent) { hovering = true; NSCursor.arrow.set() }
     override func mouseExited(with event: NSEvent) { hovering = false; pressing = false }
     override func mouseDown(with event: NSEvent) { pressing = true }
     override func mouseDragged(with event: NSEvent) {
@@ -389,6 +529,7 @@ final class PopupController: NSObject, NSWindowDelegate {
 
     func dismiss() {
         guard let p = panel else { return }
+        NSCursor.arrow.set()
         generation += 1
         stopConversation()
         panel = nil; body = nil; pendingText = nil
@@ -400,6 +541,7 @@ final class PopupController: NSObject, NSWindowDelegate {
     }
 
     func showButton(text: String, fallbackPoint: NSPoint) {
+        NSCursor.arrow.set()
         generation += 1
         stopConversation()
         if let old = panel {
@@ -724,7 +866,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         container.lineFragmentPadding = 0
         container.widthTracksTextView = true
         lm.addTextContainer(container)
-        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: textW, height: 22), textContainer: container)
+        let tv = SelectableTextView(frame: NSRect(x: 0, y: 0, width: textW, height: 22), textContainer: container)
         tv.isEditable = false
         tv.isSelectable = true
         tv.drawsBackground = false
@@ -1298,6 +1440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var activeCapture: RegionCapture?      // 截图期间强持有 RegionCapture,避免遮罩提前释放
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        enableBackgroundCursorSetting()        // 允许 nonactivatingPanel 在后台应用下切换工字形 I-Beam 光标
         NSMenuItem.popdictDisableAutoIcons()   // 关掉 macOS 26 的菜单自动图标(否则「设置…」齿轮致整菜单缩进)
         ensureConfigDir()
         AppConfig.shared.load()
