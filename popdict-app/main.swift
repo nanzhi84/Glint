@@ -180,14 +180,14 @@ func translate(_ text: String, completion: @escaping (String?, String?) -> Void)
 
 // MARK: - 解释 / 追问(支持 OpenAI / Anthropic / Gemini 流式 / SSE)
 
-// 解释用的 system prompt(自适应:代码拆解、概念大白话;短则短答长则分点)
+// 解释用的 system prompt(自适应:代码拆解、概念大白话;短则短答长则分点;契合 Claude Blog 排版层级)
 let kExplainSystem = """
 你是一个善于把复杂概念和代码讲清楚的助手。请用简体中文解释用户给出的内容,帮他真正理解。
 - 如果是代码:先说它整体在做什么,再逐步拆解关键逻辑,点出涉及的语法、库或设计意图,必要时给一句类比或小例子。
-- 如果是术语或概念:用大白话讲清它是什么、为什么重要、怎么用。
+- 如果是术语、论文或概念:先用 `## 整体在讲什么` 一两段话点透核心主旨,再用 `## 关键概念拆解` 配合 `### 子概念标题` 分模块讲清它是什么、为什么重要、怎么运作。
 - 如果是图片:先一句说清这张图整体是什么(截图/图表/报错/界面/照片/文档…),再解读其中关键信息。报错或代码截图就定位问题并给排查/解决方向;图表就读出趋势与要点;界面或流程就说清它在干什么。
-- 内容简短就简短回答(几句话点透),内容复杂就分点详解。
-- 直接开始,不要寒暄,不要复述原文。可以用 markdown(## 小标题、**加粗**、`代码`、- 列表、```代码块```)让层次清晰。
+- 排版纪律:列表项 `- ` 内部**仅对核心术语或短标签保留加粗**(如 `- **传统做法**：...`),严禁将整句长句加粗;结尾若适合给出一句话直觉总结或类比,请用 `> 一句话类比：...` 引用块呈现。
+- 内容简短就简短回答(几句话点透),内容复杂就分点详解。直接开始,不要寒暄,不要复述原文。
 - 后续若有追问,延续上下文回答。
 """
 
@@ -274,10 +274,27 @@ final class KeyablePanel: NSPanel {
 // 可选中文本视图:仅在鼠标位于真实文字字形上(或正在拖选文字)时显示工字形光标(I-Beam),空白区域保持箭头光标
 final class SelectableTextView: NSTextView {
     private var cursorTrackingArea: NSTrackingArea?
+    var rightScrollerGutter: CGFloat = 0 {
+        didSet { updateContainerWidth() }
+    }
 
     override var needsPanelToBecomeKey: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateContainerWidth()
+    }
+
+    private func updateContainerWidth() {
+        guard rightScrollerGutter > 0, let tc = textContainer else { return }
+        tc.widthTracksTextView = false
+        let targetW = max(80, bounds.width - rightScrollerGutter)
+        if abs(tc.size.width - targetW) > 0.5 {
+            tc.size = NSSize(width: targetW, height: .greatestFiniteMagnitude)
+        }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -380,7 +397,6 @@ final class SelectableTextView: NSTextView {
         guard isPointOverText(pt) else {
             setSelectedRange(NSRange(location: 0, length: 0))
             NSCursor.arrow.set()
-            window?.performDrag(with: event)
             return
         }
         window?.makeKey()
@@ -397,19 +413,50 @@ final class SelectableTextView: NSTextView {
     }
 }
 
-// 可拖动的毛玻璃背板:背景空白处可拖动窗口(文字区仍能选中、按钮/输入框各自处理事件)
-final class DraggableBlurView: NSVisualEffectView {
+// 可拖动的 Claude 暖纸色背板(#FAF9F5 主底色 + 1px 暖细边框 + 圆角裁切;背景空白处可拖动窗口)
+final class DraggablePaperView: NSView {
+    var cornerRadius: CGFloat = 14 { didSet { layer?.cornerRadius = cornerRadius; needsDisplay = true } }
+    var borderColor: NSColor = ClaudeTheme.windowBorder { didSet { needsDisplay = true } }
+
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.masksToBounds = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
+        ClaudeTheme.paperBg.setFill()
+        path.fill()
+
+        let strokeRect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let strokePath = NSBezierPath(roundedRect: strokeRect, xRadius: max(0, cornerRadius - 0.5), yRadius: max(0, cornerRadius - 0.5))
+        strokePath.lineWidth = 1.0
+        borderColor.setStroke()
+        strokePath.stroke()
+    }
 }
 
-// 悬浮按钮:无边框,hover/按下时浮起高亮(系统菜单项的交互语言)
-final class HoverButton: NSButton {
+// 划词快捷悬浮条内嵌分段按钮(图2:无系统 Emoji,采用 1.5px 线性经纬地球 / 赤陶色四角星芒图标 + #EFECE6 独立悬停圆角块)
+final class ActionPillButton: NSButton {
+    enum Kind {
+        case translate
+        case explain
+    }
+
     private var trackingAreaRef: NSTrackingArea?
     private var hovering = false { didSet { needsDisplay = true } }
     private var pressing = false { didSet { needsDisplay = true } }
-    var labelText = "🌐 翻译"
+    let kind: Kind
+    var labelText: String
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, kind: Kind, labelText: String) {
+        self.kind = kind
+        self.labelText = labelText
         super.init(frame: frameRect)
         isBordered = false
         title = ""
@@ -439,23 +486,352 @@ final class HoverButton: NSButton {
             NSApp.sendAction(action, to: target, from: self)
         }
     }
+
     override func draw(_ dirtyRect: NSRect) {
-        if pressing || hovering {
-            let bg = NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3), xRadius: 6, yRadius: 6)
-            NSColor.selectedContentBackgroundColor.withAlphaComponent(pressing ? 0.45 : 0.20).setFill()
+        let active = hovering || pressing
+        if active {
+            let bg = NSBezierPath(roundedRect: bounds, xRadius: 6.5, yRadius: 6.5)
+            (pressing ? ClaudeTheme.pillBorder : ClaudeTheme.pillHoverBg).setFill()
             bg.fill()
         }
-        let color = (hovering || pressing) ? NSColor.labelColor : NSColor.secondaryLabelColor
-        let para = NSMutableParagraphStyle(); para.alignment = .center
+
+        let textColor = active ? ClaudeTheme.inkStrong : ClaudeTheme.inkBody
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-            .foregroundColor: color,
-            .paragraphStyle: para
+            .foregroundColor: textColor
         ]
         let s = labelText as NSString
-        let size = s.size(withAttributes: attrs)
-        let r = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
-        s.draw(in: r, withAttributes: attrs)
+        let textSize = s.size(withAttributes: attrs)
+        let iconBox: CGFloat = 15
+        let gap: CGFloat = 6.5
+        let totalW = iconBox + gap + textSize.width
+        let startX = (bounds.width - totalW) / 2
+        let midY = bounds.midY
+
+        let iconRect = NSRect(x: startX, y: midY - iconBox / 2, width: iconBox, height: iconBox)
+        let globeColor = active ? ClaudeTheme.inkStrong : NSColor(srgbRed: 92/255, green: 91/255, blue: 86/255, alpha: 1.0)
+        switch kind {
+        case .translate:
+            drawGlobeIcon(in: iconRect, color: globeColor)
+        case .explain:
+            drawSparklesIcon(in: iconRect, color: ClaudeTheme.terracotta)
+        }
+
+        let textRect = NSRect(x: startX + iconBox + gap,
+                              y: midY - textSize.height / 2,
+                              width: textSize.width,
+                              height: textSize.height)
+        s.draw(in: textRect, withAttributes: attrs)
+    }
+
+    // 1.5px 线性地球经纬线图标(图2 左侧「翻译」:外圆 + 纵向经线椭圆 + 中央赤道横线)
+    private func drawGlobeIcon(in r: NSRect, color: NSColor) {
+        color.setStroke()
+        let inset = r.insetBy(dx: 0.9, dy: 0.9)
+        let circle = NSBezierPath(ovalIn: inset)
+        circle.lineWidth = 1.4
+        circle.stroke()
+
+        // 纵向经线椭圆
+        let meridianRect = NSRect(x: inset.midX - inset.width * 0.24,
+                                  y: inset.minY,
+                                  width: inset.width * 0.48,
+                                  height: inset.height)
+        let meridian = NSBezierPath(ovalIn: meridianRect)
+        meridian.lineWidth = 1.3
+        meridian.stroke()
+
+        // 中央水平纬线
+        let eq = NSBezierPath()
+        eq.move(to: NSPoint(x: inset.minX + 0.4, y: inset.midY))
+        eq.line(to: NSPoint(x: inset.maxX - 0.4, y: inset.midY))
+        eq.lineWidth = 1.3
+        eq.stroke()
+    }
+
+    // 1.5px 线性双四角星芒图标(图2 右侧「解释」,Anthropic 赤陶色 #D97757;注意 NSButton isFlipped=true,Y 向下增大)
+    private func drawSparklesIcon(in r: NSRect, color: NSColor) {
+        color.setStroke()
+        // 主四角星(左上偏中:isFlipped 下 y 较小为上)
+        let mainCenter = NSPoint(x: r.minX + r.width * 0.39, y: r.minY + r.height * 0.44)
+        let mainStar = fourPointStarPath(center: mainCenter, radius: r.width * 0.40, waist: r.width * 0.105)
+        mainStar.lineWidth = 1.4
+        mainStar.lineJoinStyle = .round
+        mainStar.lineCapStyle = .round
+        mainStar.stroke()
+
+        // 副四角星(右下角微缩点缀:isFlipped 下 y 较大为下)
+        let subCenter = NSPoint(x: r.minX + r.width * 0.79, y: r.minY + r.height * 0.77)
+        let subStar = fourPointStarPath(center: subCenter, radius: r.width * 0.21, waist: r.width * 0.055)
+        subStar.lineWidth = 1.3
+        subStar.lineJoinStyle = .round
+        subStar.lineCapStyle = .round
+        subStar.stroke()
+    }
+
+    private func fourPointStarPath(center c: NSPoint, radius R: CGFloat, waist w: CGFloat) -> NSBezierPath {
+        let p = NSBezierPath()
+        let top    = NSPoint(x: c.x,     y: c.y + R)
+        let right  = NSPoint(x: c.x + R, y: c.y)
+        let bottom = NSPoint(x: c.x,     y: c.y - R)
+        let left   = NSPoint(x: c.x - R, y: c.y)
+        let tr     = NSPoint(x: c.x + w, y: c.y + w)
+        let br     = NSPoint(x: c.x + w, y: c.y - w)
+        let bl     = NSPoint(x: c.x - w, y: c.y - w)
+        let tl     = NSPoint(x: c.x - w, y: c.y + w)
+
+        p.move(to: top)
+        p.curve(to: right,  controlPoint1: tr, controlPoint2: tr)
+        p.curve(to: bottom, controlPoint1: br, controlPoint2: br)
+        p.curve(to: left,   controlPoint1: bl, controlPoint2: bl)
+        p.curve(to: top,    controlPoint1: tl, controlPoint2: tl)
+        p.close()
+        return p
+    }
+}
+
+// 弹窗右上角悬浮线性圆形图标按钮(图1 右上角「复制」与「关闭 ×」按钮)
+final class CircleIconButton: NSButton {
+    enum IconKind {
+        case copy
+        case copied
+        case close
+    }
+
+    private var trackingAreaRef: NSTrackingArea?
+    private var hovering = false { didSet { needsDisplay = true } }
+    private var pressing = false { didSet { needsDisplay = true } }
+    var iconKind: IconKind { didSet { needsDisplay = true } }
+
+    init(frame frameRect: NSRect, iconKind: IconKind) {
+        self.iconKind = iconKind
+        super.init(frame: frameRect)
+        isBordered = false
+        title = ""
+        wantsLayer = true
+        focusRingType = .none
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = trackingAreaRef { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        trackingAreaRef = t
+    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseEntered(with event: NSEvent) { hovering = true; NSCursor.arrow.set() }
+    override func mouseExited(with event: NSEvent) { hovering = false; pressing = false }
+    override func mouseDown(with event: NSEvent) { pressing = true }
+    override func mouseDragged(with event: NSEvent) {
+        pressing = bounds.contains(convert(event.locationInWindow, from: nil))
+    }
+    override func mouseUp(with event: NSEvent) {
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        pressing = false
+        if inside, let action = action, let target = target {
+            NSApp.sendAction(action, to: target, from: self)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let circleRect = bounds.insetBy(dx: 0.75, dy: 0.75)
+        let circle = NSBezierPath(ovalIn: circleRect)
+        let bg = (hovering || pressing) ? ClaudeTheme.pillHoverBg : ClaudeTheme.paperAltBg
+        bg.setFill()
+        circle.fill()
+        ClaudeTheme.windowBorder.setStroke()
+        circle.lineWidth = 1.0
+        circle.stroke()
+
+        let strokeColor: NSColor
+        switch iconKind {
+        case .copied:
+            strokeColor = ClaudeTheme.terracotta
+        case .copy, .close:
+            strokeColor = (hovering || pressing) ? ClaudeTheme.inkStrong : ClaudeTheme.inkMuted
+        }
+        strokeColor.setStroke()
+
+        let cx = bounds.midX, cy = bounds.midY
+        switch iconKind {
+        case .copy:
+            // 双层叠圆角矩形复制图标
+            let front = NSRect(x: cx - 3.6, y: cy - 5.2, width: 7.8, height: 8.6)
+            let fp = NSBezierPath(roundedRect: front, xRadius: 1.6, yRadius: 1.6)
+            fp.lineWidth = 1.35
+            fp.stroke()
+
+            let back = NSBezierPath()
+            back.move(to: NSPoint(x: cx - 1.8, y: cy + 3.4))
+            back.line(to: NSPoint(x: cx - 1.8, y: cy + 4.4))
+            back.curve(to: NSPoint(x: cx - 0.4, y: cy + 5.6),
+                       controlPoint1: NSPoint(x: cx - 1.8, y: cy + 5.2),
+                       controlPoint2: NSPoint(x: cx - 1.2, y: cy + 5.6))
+            back.line(to: NSPoint(x: cx + 4.2, y: cy + 5.6))
+            back.curve(to: NSPoint(x: cx + 5.6, y: cy + 4.2),
+                       controlPoint1: NSPoint(x: cx + 5.0, y: cy + 5.6),
+                       controlPoint2: NSPoint(x: cx + 5.6, y: cy + 5.0))
+            back.line(to: NSPoint(x: cx + 5.6, y: cy - 1.6))
+            back.curve(to: NSPoint(x: cx + 4.4, y: cy - 2.8),
+                       controlPoint1: NSPoint(x: cx + 5.6, y: cy - 2.4),
+                       controlPoint2: NSPoint(x: cx + 5.0, y: cy - 2.8))
+            back.lineWidth = 1.35
+            back.lineCapStyle = .round
+            back.stroke()
+
+        case .copied:
+            // NSButton isFlipped=true(Y 向下增大):对勾顶点在下方 cy + 3.4,右上角收尾在 cy - 3.4
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: cx - 4.5, y: cy + 0.4))
+            check.line(to: NSPoint(x: cx - 1.2, y: cy + 3.6))
+            check.line(to: NSPoint(x: cx + 4.8, y: cy - 3.4))
+            check.lineWidth = 1.65
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            check.stroke()
+
+        case .close:
+            let r: CGFloat = 3.8
+            let xPath = NSBezierPath()
+            xPath.move(to: NSPoint(x: cx - r, y: cy - r))
+            xPath.line(to: NSPoint(x: cx + r, y: cy + r))
+            xPath.move(to: NSPoint(x: cx - r, y: cy + r))
+            xPath.line(to: NSPoint(x: cx + r, y: cy - r))
+            xPath.lineWidth = 1.4
+            xPath.lineCapStyle = .round
+            xPath.stroke()
+        }
+    }
+}
+
+// 4px 极细半透明暖灰滚动条(rgba(20, 20, 19, 0.15), 无轨道背景, 仅在滚动时轻盈浮现)
+final class WarmScroller: NSScroller {
+    override class var isCompatibleWithOverlayScrollers: Bool { true }
+    override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
+        return 8
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        drawKnob()
+    }
+    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
+    override func drawKnob() {
+        let k = rect(for: .knob)
+        guard k.height > 4 else { return }
+        let slim = NSRect(x: bounds.maxX - 6, y: k.minY + 2, width: 4, height: max(12, k.height - 4))
+        let path = NSBezierPath(roundedRect: slim, xRadius: 2, yRadius: 2)
+        ClaudeTheme.scrollbarThumb.setFill()
+        path.fill()
+    }
+}
+
+// 禁止窗口中心滚动区域触发背景拖拽移动窗口(仅外围边缘留白区可移动窗口)
+final class NonDraggableClipView: NSClipView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
+final class NonDraggableScrollView: NSScrollView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let clip = NonDraggableClipView(frame: contentView.frame)
+        clip.drawsBackground = false
+        contentView = clip
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+// 底部内嵌式悬浮胶囊追问容器(#FFFFFF 底 + 1px #E3E1D8 边框 + 12px 圆角,聚焦时过渡为赤陶色 #D97757)
+final class CapsuleInputContainerView: NSView {
+    var isFocused = false { didSet { needsDisplay = true } }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let r = bounds.insetBy(dx: 0.6, dy: 0.6)
+        let path = NSBezierPath(roundedRect: r, xRadius: 12, yRadius: 12)
+        NSColor.white.setFill()
+        path.fill()
+        (isFocused ? ClaudeTheme.terracotta : ClaudeTheme.codeBorder).setStroke()
+        path.lineWidth = isFocused ? 1.25 : 1.0
+        path.stroke()
+    }
+}
+
+// 底部胶囊右侧赤陶色圆形发送按钮(↑)
+final class SendArrowButton: NSButton {
+    private var trackingAreaRef: NSTrackingArea?
+    private var hovering = false { didSet { needsDisplay = true } }
+    private var pressing = false { didSet { needsDisplay = true } }
+
+    override var isEnabled: Bool { didSet { needsDisplay = true } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        title = ""
+        wantsLayer = true
+        focusRingType = .none
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = trackingAreaRef { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        trackingAreaRef = t
+    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseEntered(with event: NSEvent) { hovering = true; NSCursor.arrow.set() }
+    override func mouseExited(with event: NSEvent) { hovering = false; pressing = false }
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        pressing = true
+    }
+    override func mouseUp(with event: NSEvent) {
+        guard isEnabled else { return }
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        pressing = false
+        if inside, let action = action, let target = target {
+            NSApp.sendAction(action, to: target, from: self)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5))
+        if isEnabled {
+            let base = ClaudeTheme.terracotta
+            (pressing ? base.blended(withFraction: 0.15, of: .black) ?? base : base).setFill()
+        } else {
+            ClaudeTheme.codeBorder.setFill()
+        }
+        circle.fill()
+
+        // NSButton isFlipped=true(Y 向下增大):向上箭头尖端在上方 cy - 4.8,箭杆底端在 cy + 4.8
+        NSColor.white.setStroke()
+        let cx = bounds.midX, cy = bounds.midY
+        let arrow = NSBezierPath()
+        arrow.move(to: NSPoint(x: cx, y: cy + 4.8))
+        arrow.line(to: NSPoint(x: cx, y: cy - 4.8))
+        arrow.move(to: NSPoint(x: cx - 3.6, y: cy - 1.2))
+        arrow.line(to: NSPoint(x: cx, y: cy - 4.8))
+        arrow.line(to: NSPoint(x: cx + 3.6, y: cy - 1.2))
+        arrow.lineWidth = 1.6
+        arrow.lineCapStyle = .round
+        arrow.lineJoinStyle = .round
+        arrow.stroke()
+    }
+}
+
+// 感知聚焦状态的无边框追问输入框(联动外层胶囊容器边框高亮为赤陶色 #D97757)
+final class FocusAwareTextField: NSTextField {
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocusChange?(true) }
+        return ok
     }
 }
 
@@ -464,7 +840,7 @@ final class ResizeGripView: NSView {
     var onCommit: (() -> Void)?
     private var startMouse: NSPoint = .zero
     private var startFrame: NSRect = .zero
-    let minW: CGFloat = 300, minH: CGFloat = 180
+    let minW: CGFloat = 320, minH: CGFloat = 200
     override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
     override func mouseDown(with e: NSEvent) { startMouse = NSEvent.mouseLocation; startFrame = window?.frame ?? .zero }
     override func mouseDragged(with e: NSEvent) {
@@ -476,22 +852,24 @@ final class ResizeGripView: NSView {
     }
     override func mouseUp(with e: NSEvent) { onCommit?() }
     override func draw(_ r: NSRect) {
-        NSColor.secondaryLabelColor.withAlphaComponent(0.65).setStroke()
-        let p = NSBezierPath(); p.lineWidth = 1.2
-        for off in stride(from: 4, through: 12, by: 4) {
-            p.move(to: NSPoint(x: bounds.maxX - CGFloat(off) - 2, y: bounds.minY + 3))
-            p.line(to: NSPoint(x: bounds.maxX - 3, y: bounds.minY + CGFloat(off) + 1))
+        ClaudeTheme.inkMuted.withAlphaComponent(0.42).setStroke()
+        let p = NSBezierPath(); p.lineWidth = 1.15
+        for off in stride(from: 4, through: 10, by: 3) {
+            p.move(to: NSPoint(x: bounds.maxX - CGFloat(off) - 3, y: bounds.minY + 3))
+            p.line(to: NSPoint(x: bounds.maxX - 3, y: bounds.minY + CGFloat(off) + 3))
         }
         p.stroke()
     }
 }
 
-final class PopupController: NSObject, NSWindowDelegate {
+final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var panel: NSPanel?
     private var body: NSView?
     private var pendingText: String?
     private var lastResult: String?
-    private weak var copyButton: HoverButton?
+    private weak var copyButton: CircleIconButton?
+    private weak var capsuleContainer: CapsuleInputContainerView?
+    private weak var sendButton: SendArrowButton?
     private let appearDur: TimeInterval = 0.14
     private let dismissDur: TimeInterval = 0.10
     private let switchDur: TimeInterval = 0.16
@@ -501,33 +879,34 @@ final class PopupController: NSObject, NSWindowDelegate {
     private var attachedImageDataURL: String?                    // 截图解释:本轮会话附带的图(base64 data URL),整段会话期间保留、每轮重发
     private var convoTextView: NSTextView?                       // 整段对话的 transcript
     private var convoScroll: NSScrollView?
-    private var askField: NSTextField?                           // 底部追问输入框
+    private var askField: FocusAwareTextField?                   // 底部追问输入框
     private var convoTask: Task<Void, Never>?
     private var assistantStart = 0                               // 当前 assistant 流式段在 transcript 的起点
     private var assistantAccum = ""
     private var turnStartLoc = 0                                 // 本轮(含追问气泡)在 transcript 的起点,失败可整轮回滚
     private var generation = 0                                   // 递增令牌:关闭/新划词时 +1,作废在途的非流式回调(翻译)
     private var uiTestMode = false                               // POPDICT_UITEST:自测模式(程序化驱动 + 截图 + 长高日志)
-    private let convoFont = NSFont.systemFont(ofSize: 14)
-    private let convoW: CGFloat = 460
-    private let convoPad: CGFloat = 18
-    private let inputBarH: CGFloat = 46
-    private let transcriptBottomGap: CGFloat = 14   // transcript 与底部输入栏分割线之间的留白
-    private var panelIsResizable = false            // 当前态是否「可缩放/记忆」的内容浮窗(结果/会话)
-    private var growTimer: Timer?                   // 会话浮窗随流式内容长高的节流定时器
-    private var userResized = false                 // 本轮会话中用户手动改过尺寸 → 不再自动长高
-    private var frameAnimations = 0                 // 进行中的窗口帧动画计数(>0 时 p.frame 是中间态,长高/存尺寸必须跳过)
-    private var programmaticSize = NSSize.zero      // 最近一次程序化 setFrame 的目标尺寸(识别假 live resize 用)
+    private let convoFont = NSFont.systemFont(ofSize: 14.5)
+    private let convoW: CGFloat = 500
+    private let convoPad: CGFloat = 24                           // 左右内边距 24px,增加阅读呼吸感
+    private let headerTopH: CGFloat = 42                         // 顶部右上角悬浮复制/关闭按钮区高度
+    private let inputBarH: CGFloat = 56                          // 底部悬浮胶囊输入栏高度
+    private let transcriptBottomGap: CGFloat = 8                 // transcript 与底部胶囊之间的留白
+    private var panelIsResizable = false                         // 当前态是否「可缩放/记忆」的内容浮窗(结果/会话)
+    private var growTimer: Timer?                                // 会话浮窗随流式内容长高的节流定时器
+    private var userResized = false                              // 本轮会话中用户手动改过尺寸 → 不再自动长高
+    private var frameAnimations = 0                              // 进行中的窗口帧动画计数(>0 时 p.frame 是中间态,长高/存尺寸必须跳过)
+    private var programmaticSize = NSSize.zero                   // 最近一次程序化 setFrame 的目标尺寸(识别假 live resize 用)
     private let kPopupSizeKey = "popupSize"
-    private let minPopupSize = NSSize(width: 300, height: 180)
-    private let defaultPopupSize = NSSize(width: 460, height: 380)
+    private let minPopupSize = NSSize(width: 320, height: 200)
+    private let defaultPopupSize = NSSize(width: 500, height: 460)
 
     var isVisible: Bool { panel != nil }
     func frame() -> NSRect? { panel?.frame }
     // 追问输入法正在合成(点候选词等):外部点击不应关闭会话
     var isComposingText: Bool { (askField?.currentEditor() as? NSTextView)?.hasMarkedText() ?? false }
 
-    func dismiss() {
+    @objc func dismiss() {
         guard let p = panel else { return }
         NSCursor.arrow.set()
         generation += 1
@@ -540,6 +919,14 @@ final class PopupController: NSObject, NSWindowDelegate {
         }, completionHandler: { p.orderOut(nil) })
     }
 
+    // 切换背板的圆角与边框色(快捷悬浮条:10pt 圆角 + #E3E1D8;展开大弹窗:14pt 圆角 + #E8E6DE)
+    private func applyPaperStyle(isPill: Bool, to targetPanel: NSPanel?) {
+        guard let paper = targetPanel?.contentView as? DraggablePaperView else { return }
+        paper.cornerRadius = isPill ? 10 : 14
+        paper.borderColor = isPill ? ClaudeTheme.pillBorder : ClaudeTheme.windowBorder
+    }
+
+    // 图2:划词后的快捷悬浮条(Segmented Pill:4px 内边距、无硬分割线、1.5px 线性图标、#EFECE6 独立悬停块)
     func showButton(text: String, fallbackPoint: NSPoint) {
         NSCursor.arrow.set()
         generation += 1
@@ -552,44 +939,44 @@ final class PopupController: NSObject, NSWindowDelegate {
         }
         panelIsResizable = false
         pendingText = text
-        let h: CGFloat = 32, bw: CGFloat = 74, sep: CGFloat = 1
-        let w: CGFloat = bw * 2 + sep
+        let pad: CGFloat = 4
+        let gap: CGFloat = 2
+        let bw: CGFloat = 76
+        let bh: CGFloat = 30
+        let w: CGFloat = pad * 2 + bw * 2 + gap
+        let h: CGFloat = pad * 2 + bh
         let rect = buttonRect(w: w, h: h, at: fallbackPoint)
         logLine("  popup at cursor=(\(Int(fallbackPoint.x)),\(Int(fallbackPoint.y))) rect=\(NSStringFromRect(rect))")
         let container = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
 
-        let tBtn = HoverButton(frame: NSRect(x: 0, y: 0, width: bw, height: h))
-        tBtn.labelText = "🌐 翻译"
+        let tBtn = ActionPillButton(frame: NSRect(x: pad, y: pad, width: bw, height: bh),
+                                    kind: .translate, labelText: "翻译")
         tBtn.target = self
         tBtn.action = #selector(onTranslateClicked)
         container.addSubview(tBtn)
 
-        let line = NSView(frame: NSRect(x: bw, y: 6, width: sep, height: h - 12))
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
-        container.addSubview(line)
-
-        let eBtn = HoverButton(frame: NSRect(x: bw + sep, y: 0, width: bw, height: h))
-        eBtn.labelText = "💡 解释"
+        let eBtn = ActionPillButton(frame: NSRect(x: pad + bw + gap, y: pad, width: bw, height: bh),
+                                    kind: .explain, labelText: "解释")
         eBtn.target = self
         eBtn.action = #selector(onExplainClicked)
         container.addSubview(eBtn)
 
-        present(content: container, rect: rect)
+        present(content: container, rect: rect, isPill: true)
     }
 
     // 首次显示淡入;已有面板则「帧动画到新尺寸 + 内容 crossfade」。
     // 帧动画期间新旧内容都临时改成「固定尺寸、贴住顶边」(.minYMargin),
     // 避免 autoresize 以动画中途的尺寸为基准把内容压缩/挤出可视区;动画完成后再恢复跟随窗口。
-    private func present(content newBody: NSView, rect: NSRect) {
+    private func present(content newBody: NSView, rect: NSRect, isPill: Bool = false) {
         programmaticSize = rect.size
-        if let p = panel, let blur = p.contentView {
+        if let p = panel, let paper = p.contentView {
+            applyPaperStyle(isPill: isPill, to: p)
             let finalMask = newBody.autoresizingMask
             newBody.autoresizingMask = [.minYMargin]
-            newBody.frame = NSRect(x: 0, y: blur.bounds.height - rect.height,
+            newBody.frame = NSRect(x: 0, y: paper.bounds.height - rect.height,
                                    width: rect.width, height: rect.height)   // 贴顶、按最终尺寸布局
             newBody.alphaValue = 0
-            blur.addSubview(newBody)
+            paper.addSubview(newBody)
             let old = body
             old?.autoresizingMask = [.minYMargin]
             body = newBody
@@ -605,12 +992,12 @@ final class PopupController: NSObject, NSWindowDelegate {
                 old?.removeFromSuperview()
                 guard let self = self else { return }
                 self.frameAnimations -= 1
-                guard self.body === newBody, let blur2 = self.panel?.contentView else { return }
-                newBody.frame = blur2.bounds
+                guard self.body === newBody, let paper2 = self.panel?.contentView else { return }
+                newBody.frame = paper2.bounds
                 newBody.autoresizingMask = finalMask
             })
         } else {
-            let p = makePanel(rect)
+            let p = makePanel(rect, isPill: isPill)
             newBody.frame = NSRect(origin: .zero, size: rect.size)
             p.contentView?.addSubview(newBody)
             body = newBody
@@ -641,17 +1028,55 @@ final class PopupController: NSObject, NSWindowDelegate {
     }
 
     @objc private func onCopyClicked() {
-        guard let s = lastResult else { return }
+        let textToCopy = lastResult ?? convoTextView?.string
+        guard let s = textToCopy, !s.isEmpty else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(s, forType: .string)
-        copyButton?.labelText = "已复制 ✓"
-        copyButton?.needsDisplay = true
+        copyButton?.iconKind = .copied
         let btn = copyButton
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-            btn?.labelText = "复制"
-            btn?.needsDisplay = true
+            btn?.iconKind = .copy
         }
+    }
+
+    // 在弹窗右上角安装悬浮「复制」与「关闭 ×」圆形线性按钮(如图1 右上角)
+    private func addTopRightActions(to container: NSView, showCopy: Bool) {
+        let btnSize: CGFloat = 28
+        let topMargin: CGFloat = 12
+        let rightMargin: CGFloat = 16
+        let gap: CGFloat = 8
+        let y = container.bounds.height - topMargin - btnSize
+
+        let closeBtn = CircleIconButton(
+            frame: NSRect(x: container.bounds.width - rightMargin - btnSize, y: y, width: btnSize, height: btnSize),
+            iconKind: .close
+        )
+        closeBtn.target = self
+        closeBtn.action = #selector(dismiss)
+        closeBtn.autoresizingMask = [.minXMargin, .minYMargin]
+        container.addSubview(closeBtn)
+
+        if showCopy {
+            let cpBtn = CircleIconButton(
+                frame: NSRect(x: closeBtn.frame.minX - gap - btnSize, y: y, width: btnSize, height: btnSize),
+                iconKind: .copy
+            )
+            cpBtn.target = self
+            cpBtn.action = #selector(onCopyClicked)
+            cpBtn.autoresizingMask = [.minXMargin, .minYMargin]
+            container.addSubview(cpBtn)
+            copyButton = cpBtn
+        }
+    }
+
+    // 给滚动视图配置 4px 暖灰极细滚动条(默认隐藏,滚动时浮现)
+    private func configureWarmScrollView(_ scroll: NSScrollView) {
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.verticalScroller = WarmScroller()
+        scroll.scrollerStyle = .overlay
+        scroll.autohidesScrollers = true
     }
 
     // MARK: 解释 / 追问(会话浮窗)
@@ -662,13 +1087,70 @@ final class PopupController: NSObject, NSWindowDelegate {
     }
 
     // UI 自测入口(仅 POPDICT_UITEST 时调用):程序化冒按钮 → 解释 → 追问,验证整链路 + 截图 + 长高日志。
-    // (注:真实鼠标/键盘合成事件无法投递给 nonactivating 后台浮窗——只有真人指针下的点击才会到达,故这里走程序化。)
     func runDemoExplain() {
         uiTestMode = true
         let q = "用中文详细解释 Python 的装饰器(decorator):是什么、@ 语法糖的原理、不带参数和带参数的装饰器分别怎么写、以及 functools.wraps 的作用。请分小节、配多个代码例子。"
         let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 100, y: $0.frame.midY + 220) } ?? NSEvent.mouseLocation
         showButton(text: q, fallbackPoint: p)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.onExplainClicked() }
+    }
+
+    // Claude UI 视觉回归自测(POPDICT_UITEST=claude_ui):
+    // 1) 渲染图2 划词快捷悬浮条到 ~/popdict_claude_pill.png
+    // 2) 渲染图1 解释会话大弹窗到 ~/popdict_claude_explain.png
+    func runDemoClaudeUI() {
+        let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 180, y: $0.frame.midY + 260) } ?? NSEvent.mouseLocation
+        showButton(text: "demo", fallbackPoint: p)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self = self else { return }
+            self.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_pill.png")
+            self.installConversationPanel(topLeft: p)
+            let sample = """
+            # 整体在讲什么
+
+            这段文字是在综述一个研究方向：**多镜头（多视角）联合生成**中，如何用**推理期计算扩展 (Inference-Time Scaling)**来弥补“开环生成”的不稳定性。
+
+            核心引用是 Ma 等人 2025 年的论文，它重新思考了扩散模型在推理阶段该怎么花算力。
+
+            ## 关键概念拆解
+
+            ### 开环生成的不稳定性
+
+            “开环”指生成过程没有反馈校正——模型一路生成到底，中间不检查、不纠错。多镜头联合生成要求多个视角在内容、几何上保持一致，一旦某一步跑偏，后面全歪，所以不稳定。
+
+            ### 推理期计算扩展（Inference-Time Scaling）
+
+            模型参数不变，只在**推理（生成）阶段多花算力**来换质量。类比：考试时题目难度不变，但给你更多草稿纸和时间反复检查，答案会更靠谱。
+
+            ### Ma 等人的核心观点：算力别全堆在“深度”上，要分给“宽度”
+
+            - **传统做法**：加去噪步数（50 步 → 200 步），即把算力堆在单条轨迹的深度上。
+            - **问题**：边际收益递减 —— 步数加到一定程度，质量提升越来越小，纯属浪费。
+            - **更优策略**：把预算转成**搜索空间的宽度** —— 在去噪早期并行采样多个候选噪声分支，相当于同时开多条生成轨迹。
+
+            ### 外部视觉验证器（Verifier）+ 树搜索
+
+            - 用 Verifier 对中间潜变量的去噪状态做**在线评估**（判断这条分支“看起来靠不靠谱”）。再用**树搜索**做动态剪枝（砍掉差的分支）和重采样（把算力补给好的分支）。
+
+            > 一句话类比：不是让一个人把一道题反复算 200 遍，而是让多个人同时从不同思路入手，中途用裁判打分，淘汰差的、加码好的。
+            """
+            self.assistantStart = 0
+            self.finishTurn(sample)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                guard let self = self, let win = self.panel else { return }
+                win.setFrame(NSRect(x: win.frame.minX, y: win.frame.maxY - 620, width: 520, height: 620), display: true)
+                self.syncTranscriptLayout()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self = self else { return }
+                    self.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_explain.png")
+                    self.scrollTranscriptToBottom()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                        self?.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_explain_bottom.png")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { NSApp.terminate(nil) }
+                    }
+                }
+            }
+        }
     }
 
     // UI 自测入口(POPDICT_UITEST=translate):按钮 → 翻译中 → 短译文 → 长译文,
@@ -713,17 +1195,15 @@ final class PopupController: NSObject, NSWindowDelegate {
 
     // App 把自己的浮窗内容渲染成 PNG(不需要屏幕录制权限),用于真实渲染自测
     private func capturePanel(to path: String) {
-        // 1) 整个面板(含输入栏)
         if let cv = panel?.contentView, let rep = cv.bitmapImageRepForCachingDisplay(in: cv.bounds) {
             cv.cacheDisplay(in: cv.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: URL(fileURLWithPath: path)); logLine("UITEST captured \(path)")
             }
         }
-        // 2) 完整 transcript(不受滚动裁剪,验证真实视图里全部 markdown)
         if let tv = convoTextView {
             tv.drawsBackground = true
-            tv.backgroundColor = NSColor(calibratedWhite: 0.96, alpha: 1)
+            tv.backgroundColor = ClaudeTheme.paperBg
             if let rep = tv.bitmapImageRepForCachingDisplay(in: tv.bounds) {
                 tv.cacheDisplay(in: tv.bounds, to: rep)
                 if let png = rep.representation(using: .png, properties: [:]) {
@@ -734,9 +1214,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         }
     }
 
-    // 搭建会话浮窗骨架(transcript 滚动区 + 底部追问输入栏):从紧凑高度起步,
-    // present 后由长高定时器随流式内容向下生长(顶边固定),长到上限后停、内部滚动。
-    // 由 beginConversation(文字解释)与 beginImageConversation(截图解释)共用。
+    // 搭建会话浮窗骨架(右上角悬浮复制/关闭按钮 + transcript 滚动区 + 底部悬浮胶囊输入栏)
     private func installConversationPanel(topLeft: NSPoint) {
         panelIsResizable = true
         userResized = false
@@ -746,22 +1224,25 @@ final class PopupController: NSObject, NSWindowDelegate {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: w, height: startH))
         container.autoresizingMask = [.width, .height]
 
-        // transcript(可选中、滚动、缩放时重排);顶部留内边距,底部留出输入栏 + 留白
-        let scrollH = max(40, startH - inputBarH - transcriptBottomGap - convoPad)
-        let scroll = NSScrollView(frame: NSRect(x: convoPad, y: inputBarH + transcriptBottomGap, width: textW, height: scrollH))
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
+        // transcript(可选中、滚动、缩放时重排);顶部留出右上角悬浮按钮空间,底部留出胶囊输入栏,右侧留 14pt 给细滚动条
+        let scrollerGutter: CGFloat = 14
+        let scrollY = inputBarH + transcriptBottomGap
+        let scrollH = max(40, startH - scrollY - headerTopH)
+        let scroll = NonDraggableScrollView(frame: NSRect(x: convoPad, y: scrollY, width: textW + scrollerGutter, height: scrollH))
+        configureWarmScrollView(scroll)
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
         scroll.autoresizingMask = [.width, .height]
-        let tv = makeTranscriptView(width: textW)
+        let tv = makeTranscriptView(width: textW, scrollerGutter: scrollerGutter)
         scroll.documentView = tv
         container.addSubview(scroll)
         convoScroll = scroll
         convoTextView = tv
 
-        // 底部输入栏(常驻;解释期间禁用)
+        // 底部悬浮胶囊输入栏(无横贯分割线)
         container.addSubview(makeInputBar(width: w))
+
+        // 右上角悬浮「复制」与「关闭 ×」圆形线性按钮
+        addTopRightActions(to: container, showCopy: true)
 
         assistantStart = 0
         assistantAccum = ""
@@ -770,7 +1251,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         addGrip(to: container)
         var rect = NSRect(x: topLeft.x, y: topLeft.y - startH, width: w, height: startH)
         rect = clampToScreen(rect, anchor: topLeft)
-        present(content: container, rect: rect)
+        present(content: container, rect: rect, isPill: false)
         startAutoGrow()
     }
 
@@ -781,16 +1262,27 @@ final class PopupController: NSObject, NSWindowDelegate {
         growTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in self?.growToFit() }
     }
 
-    // 顶边固定向下生长;只长不缩(防抖);上限见 popupHeightCap;
-    // 触到屏幕下沿后底边贴住、顶边上移;用户手动改过尺寸后交还控制、不再自动长。
-    // 帧动画(present 切换 / 上一次长高)进行中一律跳过:那一刻 p.frame 是中间态,
-    // 采样它再 setFrame 会把动画重定向到中间尺寸,窗口就永远定格在半路(曾经的真 bug)。
+    // 强制完整排版并同步 NSTextView 文档总高度(含上下内边距),确保滚动条能滑到最底端
+    private func syncTranscriptLayout() {
+        guard let tv = convoTextView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+        lm.ensureLayout(for: tc)
+        tv.sizeToFit()
+        let minH = ceil(lm.usedRect(for: tc).height + tv.textContainerInset.height * 2)
+        if tv.frame.height < minH {
+            tv.setFrameSize(NSSize(width: tv.frame.width, height: minH))
+        }
+        if let scroll = convoScroll {
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
+
+    // 顶边固定向下生长;只长不缩(防抖);上限见 popupHeightCap
     private func growToFit() {
+        syncTranscriptLayout()
         guard frameAnimations == 0, panelIsResizable, !userResized, let p = panel, let tv = convoTextView,
               let lm = tv.layoutManager, let tc = tv.textContainer else { return }
-        lm.ensureLayout(for: tc)
-        let contentH = ceil(lm.usedRect(for: tc).height)
-        let desired = convoPad + contentH + transcriptBottomGap + inputBarH
+        let contentH = ceil(lm.usedRect(for: tc).height + tv.textContainerInset.height * 2)
+        let desired = headerTopH + contentH + transcriptBottomGap + inputBarH
         let vf = (p.screen ?? screenFor(point: NSPoint(x: p.frame.minX, y: p.frame.maxY))).visibleFrame
         let newH = min(max(desired, minPopupSize.height), popupHeightCap(vf))
         guard newH > p.frame.height + 1 else { return }
@@ -811,14 +1303,12 @@ final class PopupController: NSObject, NSWindowDelegate {
         stopConversation()
         attachedImageDataURL = nil
         convo = [(role: "user", content: firstUserText)]
-        // 顶左对齐:从按钮切到会话时顶边不动(贴着选区上沿),随内容向下生长
         let topLeft = panel.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) } ?? NSEvent.mouseLocation
         installConversationPanel(topLeft: topLeft)
         sendTurn()
     }
 
     // 截图解释:把图存为会话首条 user(每轮重发),顶部放缩略图 + 指令气泡,然后流式解释。
-    // 与文字解释共用同一套会话浮窗 + 追问 + 回滚逻辑。
     func beginImageConversation(image: NSImage, instruction: String = "请解释这张图片的内容。") {
         generation += 1
         stopConversation()
@@ -831,12 +1321,11 @@ final class PopupController: NSObject, NSWindowDelegate {
         let vf = screenFor(point: NSEvent.mouseLocation).visibleFrame
         let topLeft = NSPoint(x: vf.midX - savedPopupSize().width / 2, y: vf.maxY - 80)
         installConversationPanel(topLeft: topLeft)
-        // 顶部:缩略图 + 指令气泡(在 sendTurn 之前插入,流式答案接其后)
         if let tv = convoTextView, let storage = tv.textStorage {
             storage.append(thumbnailString(image, maxW: savedPopupSize().width - convoPad * 2))
             storage.append(NSAttributedString(string: instruction + "\n", attributes: [
-                .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
-                .foregroundColor: NSColor.labelColor,
+                .font: NSFont.systemFont(ofSize: 14.5, weight: .semibold),
+                .foregroundColor: ClaudeTheme.inkStrong,
                 .paragraphStyle: MD.bodyStyle()]))
         }
         sendTurn()
@@ -878,47 +1367,79 @@ final class PopupController: NSObject, NSWindowDelegate {
         return tv
     }
 
-    private func makeTranscriptView(width textW: CGFloat) -> NSTextView {
-        let tv = makeRenderingTextView(width: textW)
-        tv.minSize = NSSize(width: textW, height: 0)
-        tv.typingAttributes = [.font: convoFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: MD.bodyStyle()]
+    private func makeTranscriptView(width textW: CGFloat, scrollerGutter: CGFloat = 14) -> NSTextView {
+        let tv = makeRenderingTextView(width: textW + scrollerGutter)
+        if let stv = tv as? SelectableTextView {
+            stv.rightScrollerGutter = scrollerGutter
+        }
+        tv.textContainerInset = NSSize(width: 0, height: 8)
+        tv.minSize = NSSize(width: textW + scrollerGutter, height: 0)
+        tv.typingAttributes = [.font: convoFont, .foregroundColor: ClaudeTheme.inkBody, .paragraphStyle: MD.bodyStyle()]
         return tv
     }
 
-    // 底部输入栏:顶部分隔线 + 原生圆角输入框(回车发送)+「复制」
+    // 底部内嵌式悬浮胶囊输入栏(图1:移除贯穿左右的硬分割线,#FFFFFF 胶囊 + #E3E1D8 细边框 + 右侧赤陶色圆形 ↑ 发送按钮)
     private func makeInputBar(width w: CGFloat) -> NSView {
         let bar = NSView(frame: NSRect(x: 0, y: 0, width: w, height: inputBarH))
-        bar.autoresizingMask = [.width, .maxYMargin]    // 固定在底部
+        bar.autoresizingMask = [.width, .maxYMargin]
 
-        let line = NSView(frame: NSRect(x: 0, y: inputBarH - 1, width: w, height: 1))
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
-        line.autoresizingMask = [.width, .minYMargin]
-        bar.addSubview(line)
+        let capH: CGFloat = 38
+        let capW = w - convoPad * 2
+        let capsule = CapsuleInputContainerView(frame: NSRect(x: convoPad, y: 12, width: capW, height: capH))
+        capsule.autoresizingMask = [.width]
+        bar.addSubview(capsule)
+        capsuleContainer = capsule
 
-        let cbW: CGFloat = 54, fieldH: CGFloat = 24
-        let fieldW = w - convoPad * 2 - cbW - 8
-        let field = NSTextField(frame: NSRect(x: convoPad, y: (inputBarH - fieldH) / 2 - 0.5, width: fieldW, height: fieldH))
-        field.bezelStyle = .roundedBezel
-        field.placeholderString = "正在生成…"
+        let sendSize: CGFloat = 26
+        let sendBtn = SendArrowButton(frame: NSRect(x: capW - sendSize - 6, y: (capH - sendSize) / 2, width: sendSize, height: sendSize))
+        sendBtn.target = self
+        sendBtn.action = #selector(onAskSubmit)
+        sendBtn.isEnabled = false
+        sendBtn.autoresizingMask = [.minXMargin]
+        capsule.addSubview(sendBtn)
+        sendButton = sendBtn
+
+        let fieldH: CGFloat = 21
+        let fieldW = capW - 14 - sendSize - 14
+        let field = FocusAwareTextField(frame: NSRect(x: 14, y: (capH - fieldH) / 2 - 1, width: fieldW, height: fieldH))
+        field.isBordered = false
+        field.drawsBackground = false
         field.isEnabled = false
-        field.font = NSFont.systemFont(ofSize: 13)
+        field.font = NSFont.systemFont(ofSize: 13.5)
+        field.textColor = ClaudeTheme.inkStrong
         field.focusRingType = .none
+        field.delegate = self
         field.target = self
         field.action = #selector(onAskSubmit)
         field.autoresizingMask = [.width]
-        (field.cell as? NSTextFieldCell)?.sendsActionOnEndEditing = false   // 仅回车发送,失焦不触发
-        bar.addSubview(field)
+        (field.cell as? NSTextFieldCell)?.sendsActionOnEndEditing = false
+        field.onFocusChange = { [weak capsule] focused in
+            capsule?.isFocused = focused
+        }
+        capsule.addSubview(field)
         askField = field
+        setInputPlaceholder("正在生成…")
 
-        let cb = HoverButton(frame: NSRect(x: w - convoPad - cbW, y: (inputBarH - 24) / 2, width: cbW, height: 24))
-        cb.labelText = "复制"
-        cb.target = self
-        cb.action = #selector(onCopyClicked)
-        cb.autoresizingMask = [.minXMargin]
-        bar.addSubview(cb)
-        copyButton = cb
         return bar
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        capsuleContainer?.isFocused = true
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        capsuleContainer?.isFocused = false
+    }
+
+    private func setInputPlaceholder(_ text: String) {
+        guard let field = askField else { return }
+        field.placeholderAttributedString = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13.5),
+                .foregroundColor: ClaudeTheme.inkMuted
+            ]
+        )
     }
 
     // 用当前 convo 发起一轮流式;在 transcript 末尾接续 assistant 段
@@ -930,7 +1451,6 @@ final class PopupController: NSObject, NSWindowDelegate {
         var messages: [[String: Any]] = [["role": "system", "content": kExplainSystem]]
         for (i, m) in convo.enumerated() {
             if i == 0, m.role == "user", let dataURL = attachedImageDataURL {
-                // 截图解释:首条 user = 指令文字 + 图片块(每轮重发,确保追问仍带图上下文)
                 let content: [[String: Any]] = [
                     ["type": "text", "text": m.content],
                     ["type": "image_url", "image_url": ["url": dataURL]]
@@ -951,7 +1471,7 @@ final class PopupController: NSObject, NSWindowDelegate {
         guard let tv = convoTextView, panel != nil else { return }
         assistantAccum += delta
         tv.textStorage?.append(NSAttributedString(string: delta, attributes: [
-            .font: convoFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: MD.bodyStyle()]))
+            .font: convoFont, .foregroundColor: ClaudeTheme.inkBody, .paragraphStyle: MD.bodyStyle()]))
         scrollTranscriptToBottom()
     }
 
@@ -964,17 +1484,16 @@ final class PopupController: NSObject, NSWindowDelegate {
         lastResult = text
         if let tv = convoTextView, let storage = tv.textStorage {
             let len = max(0, storage.length - assistantStart)
-            let rendered = MD.render(text, width: (panel?.frame.width ?? convoW) - convoPad * 2, baseFont: convoFont, textColor: .labelColor)
+            let rendered = MD.render(text, width: (panel?.frame.width ?? convoW) - convoPad * 2, baseFont: convoFont, textColor: ClaudeTheme.inkBody)
             storage.replaceCharacters(in: NSRange(location: assistantStart, length: len), with: rendered)
         }
-        setInputEnabled(true, placeholder: "继续追问…(回车发送)")
+        setInputEnabled(true, placeholder: "继续追问… (回车发送)")
         focusAskField()
         scrollTranscript(toLocation: turnStartLoc)   // 一轮完成后回到本轮开头(从头读)
 
         if uiTestMode {
             let asst = convo.filter { $0.role == "assistant" }.count
             if asst == 1 {
-                // 程序化发一条追问,验证输入框提交 → 上下文延续 → 第二轮
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                     guard let self = self, let f = self.askField, f.isEnabled else { return }
                     f.stringValue = "为什么带参数的装饰器要写成三层嵌套函数?简短说。"
@@ -983,7 +1502,7 @@ final class PopupController: NSObject, NSWindowDelegate {
             } else {
                 uiTestMode = false
                 let users = convo.filter { $0.role == "user" }.count
-                logLine("UITEST multiturn: users=\(users) assistants=\(asst)")   // 应 users=2 assistants=2(上下文已延续)
+                logLine("UITEST multiturn: users=\(users) assistants=\(asst)")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.capturePanel(to: "\(NSHomeDirectory())/popdict_multiturn.png")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
@@ -996,26 +1515,24 @@ final class PopupController: NSObject, NSWindowDelegate {
         convoTask = nil
         guard convoTextView != nil else { return }   // 会话已被关闭:忽略迟到的错误回调
         let hasAssistant = convo.contains { $0.role == "assistant" }
-        // 首轮失败(无论流式是否已吐出半截)→ 回退普通错误浮窗,保留原文上下文不破坏
         if !hasAssistant {
             stopConversation()
             showMessage(msg, isError: true)
             return
         }
-        // 追问失败:撤掉这轮 user 上下文 + transcript 里本轮气泡和半截回答(整轮回滚),附红字提示,允许重试
         if convo.count > 1, convo.last?.role == "user" { convo.removeLast() }
         if let tv = convoTextView, let storage = tv.textStorage {
             let len = max(0, storage.length - turnStartLoc)
             if len > 0 { storage.deleteCharacters(in: NSRange(location: turnStartLoc, length: len)) }
             storage.append(NSAttributedString(string: "\n⚠️ \(msg)\n", attributes: [
-                .font: convoFont, .foregroundColor: NSColor.systemRed, .paragraphStyle: MD.bodyStyle()]))
+                .font: convoFont, .foregroundColor: ClaudeTheme.terracotta, .paragraphStyle: MD.bodyStyle()]))
         }
-        setInputEnabled(true, placeholder: "继续追问…(回车发送)")
+        setInputEnabled(true, placeholder: "继续追问… (回车发送)")
         focusAskField()
         scrollTranscriptToBottom()
     }
 
-    // 回车发送追问
+    // 回车或点击右侧 ↑ 按钮发送追问
     @objc private func onAskSubmit() {
         guard let field = askField, field.isEnabled, let tv = convoTextView else { return }
         let q = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1028,43 +1545,43 @@ final class PopupController: NSObject, NSWindowDelegate {
         sendTurn()
     }
 
-    // transcript 里追加一条「你的追问」气泡:与上一轮明显拉开 + accent 标签 + 浅 accent 圆角底,
-    // 让用户追问和 AI 回答一眼能分清、轮次之间界限清晰。
+    // transcript 里追加一条「你的追问」气泡:赤陶色标签 + 浅赤陶暖底
     private func appendUserBubble(_ q: String, to tv: NSTextView) {
         guard let storage = tv.textStorage else { return }
         let m = NSMutableAttributedString()
-        // MD.render 去掉了 AI 回答尾部换行,先补一个换行,避免「你的追问」挤到上一行末尾
         m.append(NSAttributedString(string: "\n", attributes: [.font: convoFont, .paragraphStyle: MD.bodyStyle()]))
         let pLabel = NSMutableParagraphStyle()
         pLabel.firstLineHeadIndent = 12; pLabel.headIndent = 12; pLabel.tailIndent = -12
         pLabel.lineSpacing = 3
-        pLabel.paragraphSpacingBefore = 24   // 与上一轮 AI 回答明显拉开(轮次分隔)
+        pLabel.paragraphSpacingBefore = 24
         pLabel.paragraphSpacing = 3
         m.append(NSAttributedString(string: "你的追问\n", attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-            .foregroundColor: NSColor.controlAccentColor,
+            .foregroundColor: ClaudeTheme.terracotta,
             .paragraphStyle: pLabel, MD.userMsgKey: true]))
         let pBody = NSMutableParagraphStyle()
         pBody.firstLineHeadIndent = 12; pBody.headIndent = 12; pBody.tailIndent = -12
-        pBody.lineSpacing = 3
-        pBody.paragraphSpacing = 22          // 问题与下面 AI 回答拉开
+        pBody.lineSpacing = 4
+        pBody.paragraphSpacing = 22
         m.append(NSAttributedString(string: q + "\n", attributes: [
-            .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
-            .foregroundColor: NSColor.labelColor,
+            .font: NSFont.systemFont(ofSize: 14.5, weight: .semibold),
+            .foregroundColor: ClaudeTheme.inkStrong,
             .paragraphStyle: pBody, MD.userMsgKey: true]))
         storage.append(m)
     }
 
     private func setInputEnabled(_ enabled: Bool, placeholder: String) {
         askField?.isEnabled = enabled
-        askField?.placeholderString = placeholder
+        sendButton?.isEnabled = enabled
+        setInputPlaceholder(placeholder)
+        if !enabled { capsuleContainer?.isFocused = false }
     }
 
-    // 仅在用户已停留在本浮窗(已是 key window)时才自动聚焦输入框;
-    // 否则不抢键盘焦点,避免打断用户在原 App 里的输入(点击输入框本身即可获得焦点)。
+    // 仅在用户已停留在本浮窗(已是 key window)时才自动聚焦输入框
     private func focusAskField() {
         guard let p = panel, p.isKeyWindow, let field = askField else { return }
         p.makeFirstResponder(field)
+        capsuleContainer?.isFocused = true
     }
 
     private func screenFor(point: NSPoint) -> NSScreen {
@@ -1082,18 +1599,23 @@ final class PopupController: NSObject, NSWindowDelegate {
     }
 
     private func scrollTranscriptToBottom() {
-        guard let tv = convoTextView else { return }
-        tv.scrollRangeToVisible(NSRange(location: tv.textStorage?.length ?? 0, length: 0))
+        syncTranscriptLayout()
+        guard let tv = convoTextView, let scroll = convoScroll else { return }
+        let maxY = max(0, tv.frame.height - scroll.contentView.bounds.height)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     // 把某字符位置滚到可视区顶部(一轮结束后从本轮开头开始读)
     private func scrollTranscript(toLocation loc: Int) {
+        syncTranscriptLayout()
         guard let tv = convoTextView, let lm = tv.layoutManager, let tc = tv.textContainer,
               let scroll = convoScroll, let storage = tv.textStorage else { return }
         let safe = min(max(0, loc), storage.length)
         let gr = lm.glyphRange(forCharacterRange: NSRange(location: safe, length: 0), actualCharacterRange: nil)
         let rect = lm.boundingRect(forGlyphRange: gr, in: tc)
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY - 2)))
+        let targetY = safe == 0 ? 0 : max(0, tv.textContainerOrigin.y + rect.minY - 2)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: targetY))
         scroll.reflectScrolledClipView(scroll.contentView)
     }
 
@@ -1104,6 +1626,8 @@ final class PopupController: NSObject, NSWindowDelegate {
         convoTextView = nil
         convoScroll = nil
         askField = nil
+        capsuleContainer = nil
+        sendButton = nil
         convo = []
         attachedImageDataURL = nil
         assistantStart = 0
@@ -1127,43 +1651,38 @@ final class PopupController: NSObject, NSWindowDelegate {
         lastResult = showCopy ? message : nil
         copyButton = nil
         panelIsResizable = showCopy          // 译文结果:可缩放 + 记忆上限;翻译中/错误:瞬时小窗
-        // 锚点:顶左固定(接住按钮/上一态的顶边,向下生长);没有面板时用鼠标位置
         let topLeft = panel.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) } ?? NSEvent.mouseLocation
 
-        let pad: CGFloat = 14
-        let footerH: CGFloat = 36
-        let bottomInset: CGFloat = showCopy ? footerH + 8 : pad   // +8:正文与分隔线之间的留白
-        let font = NSFont.systemFont(ofSize: 14)
-        let textColor = isError ? NSColor.systemRed : NSColor.labelColor
+        let pad: CGFloat = showCopy ? 24 : 18
+        let topInset: CGFloat = showCopy ? headerTopH : 16
+        let bottomInset: CGFloat = showCopy ? 20 : 16
+        let font = NSFont.systemFont(ofSize: 14.5)
+        let textColor = isError ? ClaudeTheme.terracotta : ClaudeTheme.inkBody
 
-        // 尺寸自适应:先按上限宽度排版量出自然宽高,再收窄窗口——
-        // 短译文小窗贴身,长译文到上限(记忆尺寸)后内部滚动
+        // 尺寸自适应:短译文紧凑但留出右上角悬浮按钮空间,长译文到上限后内部滚动
         let maxW: CGFloat = showCopy ? savedPopupSize().width : 420
-        let minW: CGFloat = showCopy ? 220 : 96
+        let minW: CGFloat = showCopy ? 280 : 112
 
-        // 译文按 markdown 渲染;其它(翻译中/错误)纯文本
         let attr = markdown
             ? MD.render(message, width: maxW - pad * 2, baseFont: font, textColor: textColor)
-            : NSAttributedString(string: message, attributes: [.font: font, .foregroundColor: textColor])
+            : NSAttributedString(string: message, attributes: [.font: font, .foregroundColor: textColor, .paragraphStyle: MD.bodyStyle()])
         let natural = measuredTextSize(attr, width: maxW - pad * 2)
-        let w = min(max(natural.width + pad * 2 + 2, minW), maxW)   // +2:防走边缘重排
+        let w = min(max(natural.width + pad * 2 + 4, minW), maxW)
         let textW = w - pad * 2
 
-        let contentH = max(20, natural.height)
+        let contentH = max(24, natural.height)
         let vf = (panel?.screen ?? screenFor(point: topLeft)).visibleFrame
         let maxContentH = showCopy
-            ? popupHeightCap(vf) - pad - bottomInset
+            ? popupHeightCap(vf) - topInset - bottomInset
             : min(440, vf.height - 140)
-        let visibleH = max(40, min(contentH, maxContentH))
-        let panelH = pad + visibleH + bottomInset
+        let visibleH = max(32, min(contentH, maxContentH))
+        let panelH = topInset + visibleH + bottomInset
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: w, height: panelH))
         if showCopy { container.autoresizingMask = [.width, .height] }
-        let scroll = NSScrollView(frame: NSRect(x: pad, y: bottomInset, width: textW, height: visibleH))
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
+        let scroll = NonDraggableScrollView(frame: NSRect(x: pad, y: bottomInset, width: textW, height: visibleH))
+        configureWarmScrollView(scroll)
         scroll.hasVerticalScroller = contentH > visibleH
-        scroll.autohidesScrollers = true
         if showCopy { scroll.autoresizingMask = [.width, .height] }
 
         let tv = makeRenderingTextView(width: textW)
@@ -1173,32 +1692,19 @@ final class PopupController: NSObject, NSWindowDelegate {
         scroll.documentView = tv
         container.addSubview(scroll)
 
-        // 译文结果:底部分隔线 + 「复制」按钮 + 右下握把
+        // 译文结果:右上角悬浮「复制」与「关闭 ×」圆形线性按钮 + 右下握把(移除旧版底部横贯分割线)
         if showCopy {
-            let line = NSView(frame: NSRect(x: pad, y: footerH, width: textW, height: 1))
-            line.wantsLayer = true
-            line.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
-            line.autoresizingMask = [.width, .maxYMargin]
-            container.addSubview(line)
-            let cbW: CGFloat = 70, cbH: CGFloat = 24
-            let cb = HoverButton(frame: NSRect(x: w - pad - cbW, y: (footerH - cbH) / 2, width: cbW, height: cbH))
-            cb.labelText = "复制"
-            cb.target = self
-            cb.action = #selector(onCopyClicked)
-            cb.autoresizingMask = [.minXMargin, .maxYMargin]
-            container.addSubview(cb)
-            copyButton = cb
+            addTopRightActions(to: container, showCopy: true)
             addGrip(to: container)
         }
 
         var rect = NSRect(x: topLeft.x, y: topLeft.y - panelH, width: w, height: panelH)
         rect = clampToScreen(rect, anchor: topLeft)
-        present(content: container, rect: rect)
+        present(content: container, rect: rect, isPill: !showCopy)
         tv.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
 
-    // 内容浮窗自动长高的上限:默认 380;用户手动拉大后按记忆值抬高——只抬高、不压低
-    // (否则一次误缩会把之后所有浮窗都卡成小窗);最终不超过屏幕可视高度
+    // 内容浮窗自动长高的上限:默认 460;用户手动拉大后按记忆值抬高
     private func popupHeightCap(_ vf: NSRect) -> CGFloat {
         return min(max(savedPopupSize().height, defaultPopupSize.height), vf.height - 12)
     }
@@ -1224,11 +1730,13 @@ final class PopupController: NSObject, NSWindowDelegate {
         container.addSubview(g)
     }
 
+    func windowDidResize(_ notification: Notification) {
+        syncTranscriptLayout()
+    }
+
     // 边缘缩放结束:记住尺寸(仅内容浮窗),并交还尺寸控制权(本轮会话不再自动长高)。
-    // 注意:macOS 26 上 animator().setFrame 的程序化窗口动画也会触发本回调——
-    // 动画中,或和最近一次程序化目标尺寸一致时,都是「假 live resize」,不能当用户操作,
-    // 否则会把动画中间态尺寸写进记忆、并误关自动长高(曾经的真 bug)。
     func windowDidEndLiveResize(_ notification: Notification) {
+        syncTranscriptLayout()
         guard panelIsResizable, let p = panel, frameAnimations == 0 else { return }
         if abs(p.frame.width - programmaticSize.width) < 2,
            abs(p.frame.height - programmaticSize.height) < 2 { return }
@@ -1236,10 +1744,11 @@ final class PopupController: NSObject, NSWindowDelegate {
         savePopupSize(p.frame.size)
     }
 
-    private func makePanel(_ rect: NSRect) -> NSPanel {
+    private func makePanel(_ rect: NSRect, isPill: Bool = false) -> NSPanel {
         let p = KeyablePanel(contentRect: rect,
                         styleMask: [.borderless, .nonactivatingPanel, .resizable],
                         backing: .buffered, defer: false)
+        p.appearance = NSAppearance(named: .aqua)
         p.minSize = minPopupSize
         p.delegate = self
         p.isFloatingPanel = true
@@ -1252,18 +1761,11 @@ final class PopupController: NSObject, NSWindowDelegate {
         p.hasShadow = true
         p.animationBehavior = .none
 
-        // 毛玻璃背板:.menu 材质 + behindWindow 实时模糊;圆角靠父 layer 裁切,阴影交给系统
-        let blur = DraggableBlurView(frame: NSRect(origin: .zero, size: rect.size))
-        blur.material = .menu
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 9
-        blur.layer?.masksToBounds = true
-        blur.layer?.borderWidth = 1
-        blur.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
-        blur.autoresizingMask = [.width, .height]
-        p.contentView = blur
+        let paper = DraggablePaperView(frame: NSRect(origin: .zero, size: rect.size))
+        paper.cornerRadius = isPill ? 10 : 14
+        paper.borderColor = isPill ? ClaudeTheme.pillBorder : ClaudeTheme.windowBorder
+        paper.autoresizingMask = [.width, .height]
+        p.contentView = paper
         return p
     }
 
@@ -1457,6 +1959,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 if mode == "translate" {
                     self.popup.runDemoTranslate()
+                } else if mode == "claude_ui" {
+                    self.popup.runDemoClaudeUI()
                 } else if mode == "settings" {
                     self.settings.show(tab: 0)
                     logLine("UITEST settings tab=0 (基础) frame=\(self.settings.windowObject?.frame ?? .zero)")

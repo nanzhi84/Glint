@@ -1,9 +1,67 @@
 import AppKit
 
 // ============================================================
+// Claude Blog (Anthropic 官网专栏) 暖纸色调与排版主题
+// ============================================================
+
+enum ClaudeTheme {
+    static let paperBg        = NSColor(srgbRed: 250/255, green: 249/255, blue: 245/255, alpha: 1.0) // #FAF9F5 暖米白主背景
+    static let paperAltBg     = NSColor(srgbRed: 245/255, green: 244/255, blue: 239/255, alpha: 1.0) // #F5F4EF 次级暖底
+    static let pillHoverBg    = NSColor(srgbRed: 239/255, green: 236/255, blue: 230/255, alpha: 1.0) // #EFECE6 按钮悬停暖色块
+    static let calloutBg      = NSColor(srgbRed: 243/255, green: 239/255, blue: 230/255, alpha: 1.0) // #F3EFE6 引用卡片暖底
+    static let calloutBorder  = NSColor(srgbRed: 232/255, green: 227/255, blue: 215/255, alpha: 1.0) // #E8E3D7 引用卡片细边框
+    static let codeBg         = NSColor(srgbRed: 242/255, green: 239/255, blue: 232/255, alpha: 1.0) // #F2EFE8 代码块暖底
+    static let codeBorder     = NSColor(srgbRed: 227/255, green: 225/255, blue: 216/255, alpha: 1.0) // #E3E1D8 代码块/输入框边框
+    static let windowBorder   = NSColor(srgbRed: 232/255, green: 230/255, blue: 222/255, alpha: 1.0) // #E8E6DE 弹窗外边框与分割线
+    static let pillBorder     = NSColor(srgbRed: 227/255, green: 225/255, blue: 216/255, alpha: 1.0) // #E3E1D8 快捷悬浮条外边框
+    static let inkStrong      = NSColor(srgbRed: 20/255,  green: 20/255,  blue: 19/255,  alpha: 1.0) // #141413 标题与强调纯深色
+    static let inkBody        = NSColor(srgbRed: 45/255,  green: 45/255,  blue: 42/255,  alpha: 1.0) // #2D2D2A 正文暖深炭灰
+    static let inkMuted       = NSColor(srgbRed: 115/255, green: 114/255, blue: 108/255, alpha: 1.0) // #73726C 次要文字与占位符
+    static let terracotta     = NSColor(srgbRed: 217/255, green: 119/255, blue: 87/255,  alpha: 1.0) // #D97757 Anthropic 赤陶色
+    static let terracottaSoft = NSColor(srgbRed: 217/255, green: 119/255, blue: 87/255,  alpha: 0.14)
+    static let scrollbarThumb = NSColor(srgbRed: 20/255,  green: 20/255,  blue: 19/255,  alpha: 0.15) // rgba(20,20,19,0.15)
+
+    // 衬线标题字体(优先思源宋体 / 宋体-简 Bold / 系统衬线体,营造 Claude Blog 书卷感)
+    static func serifHeadingFont(size: CGFloat) -> NSFont {
+        let candidates = [
+            "SourceHanSerifSC-Bold",
+            "NotoSerifCJKsc-Bold",
+            "STSongti-SC-Bold",
+            "STSongti-SC-Black",
+            "Songti SC",
+            "Georgia-Bold"
+        ]
+        for name in candidates {
+            if let f = NSFont(name: name, size: size) {
+                let bold = NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask)
+                return bold
+            }
+        }
+        if let desc = NSFont.systemFont(ofSize: size, weight: .bold).fontDescriptor.withDesign(.serif),
+           let f = NSFont(descriptor: desc, size: size) {
+            return f
+        }
+        return NSFont.boldSystemFont(ofSize: size)
+    }
+
+    static func boldFont(from base: NSFont) -> NSFont {
+        let converted = NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
+        if converted.fontDescriptor.symbolicTraits.contains(.bold) {
+            return converted
+        }
+        let d = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(.bold))
+        if let f = NSFont(descriptor: d, size: base.pointSize),
+           f.fontDescriptor.symbolicTraits.contains(.bold) {
+            return f
+        }
+        return NSFont.boldSystemFont(ofSize: base.pointSize)
+    }
+}
+
+// ============================================================
 // 轻量 Markdown → NSAttributedString 渲染器(块级 + 行内)
 // 块级:标题 # ~ ######、无序/有序列表、代码块 ```、分隔线 ---、引用 >、表格 | a | b |
-// 行内:**粗体** *斜体* `行内代码` [链接](url)  ← 复用 Apple 的 inline 解析
+// 行内:**粗体**(支持 CJK 与全半角括号紧邻) *斜体* `行内代码` [链接](url)
 // 自包含,无外部依赖,可单独编译做离屏测试。
 // ============================================================
 
@@ -11,15 +69,22 @@ enum MD {
 
     // 代码块标记:LayoutManager 据此在整段后面画满宽圆角底
     static let codeBlockKey = NSAttributedString.Key("popdictCodeBlock")
-    // 追问气泡标记:LayoutManager 据此画浅 accent 圆角底(区分用户追问与 AI 回答)
+    // 追问气泡标记:LayoutManager 据此画暖色圆角底(区分用户追问与 AI 回答)
     static let userMsgKey = NSAttributedString.Key("popdictUserMsg")
+    // 引用/类比卡片标记:LayoutManager 据此画暖米色圆角卡片
+    static let quoteBlockKey = NSAttributedString.Key("popdictQuoteBlock")
+    // 三级小标题左侧赤陶色竖线标记
+    static let subHeadingBarKey = NSAttributedString.Key("popdictSubHeadingBar")
+
+    private static let boldOpenSentinel: Character = "\u{FFF9}"
+    private static let boldCloseSentinel: Character = "\u{FFFA}"
 
     // MARK: 主入口
 
     static func render(_ src: String,
                        width: CGFloat,
-                       baseFont: NSFont = .systemFont(ofSize: 14),
-                       textColor: NSColor = .labelColor) -> NSAttributedString {
+                       baseFont: NSFont = .systemFont(ofSize: 14.5),
+                       textColor: NSColor = ClaudeTheme.inkBody) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let lines = src.replacingOccurrences(of: "\r\n", with: "\n")
                        .replacingOccurrences(of: "\r", with: "\n")
@@ -90,12 +155,21 @@ enum MD {
                 out.append(tableAttr(header: header, aligns: aligns, rows: rows, baseFont: baseFont, color: textColor))
                 continue
             }
-            // 引用
+            // 引用(连续多行 > 合并为同一个引用卡片块)
             if t.hasPrefix(">") {
                 flushPara()
-                let q = String(t.drop(while: { $0 == ">" || $0 == " " }))
-                out.append(quoteAttr(q, baseFont: baseFont, color: textColor))
-                i += 1; continue
+                var qLines: [String] = []
+                while i < lines.count {
+                    let qt = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard qt.hasPrefix(">") else { break }
+                    let stripped = String(qt.drop(while: { $0 == ">" || $0 == " " }))
+                    if !stripped.isEmpty { qLines.append(stripped) }
+                    i += 1
+                }
+                if !qLines.isEmpty {
+                    out.append(quoteAttr(qLines.joined(separator: "\u{2028}"), baseFont: baseFont, color: textColor))
+                }
+                continue
             }
             // 列表项:层级由缩进栈决定——比上一项缩得更深就进一层,变浅就弹栈回退。
             // 不做「除以固定空格数」的猜测,兼容 2/3/4 空格与 tab 的各种缩进风格
@@ -116,62 +190,151 @@ enum MD {
         while out.length > 0, (out.string as NSString).hasSuffix("\n") {
             out.deleteCharacters(in: NSRange(location: out.length - 1, length: 1))
         }
+        // 若结尾是带圆角背景卡片的引用块(padY=9)或代码块(padY=8),补一行不带卡片标记的底部留白行,
+        // 使 NSLayoutManager.usedRect 的下界完整包住卡片下内边距与底边框,防止滚动到底部时被裁切。
+        if out.length > 0 {
+            let lastIdx = out.length - 1
+            let hasQuote = (out.attribute(quoteBlockKey, at: lastIdx, effectiveRange: nil) as? Bool) == true
+            let hasCode  = (out.attribute(codeBlockKey,  at: lastIdx, effectiveRange: nil) as? Bool) == true
+            if hasQuote || hasCode {
+                let sp = NSMutableParagraphStyle()
+                sp.paragraphSpacingBefore = 4
+                sp.lineSpacing = 0
+                sp.paragraphSpacing = 0
+                out.append(NSAttributedString(string: "\n ", attributes: [
+                    .font: NSFont.systemFont(ofSize: 10),
+                    .paragraphStyle: sp
+                ]))
+            }
+        }
         return out
     }
 
-    // MARK: 行内(复用 Apple inline markdown)
+    // MARK: 行内(CJK 括号友好粗体预处理 + Apple inline markdown)
+
+    // 将非行内代码段中的 **...** 替换为哨兵字符,规避 CommonMark 对中文紧邻全/半角括号如
+    // `**推理期计算扩展 (Inference-Time Scaling)**来弥补` 无法识别右翼分隔符的缺陷,同时保留 `**code**` 原样。
+    private static func preprocessCJKBold(_ s: String) -> String {
+        var result = ""
+        var i = s.startIndex
+        var inCode = false
+
+        while i < s.endIndex {
+            let ch = s[i]
+            if ch == "`" {
+                inCode.toggle()
+                result.append(ch)
+                i = s.index(after: i)
+                continue
+            }
+            if !inCode, s[i...].hasPrefix("**") {
+                let contentStart = s.index(i, offsetBy: 2)
+                if contentStart < s.endIndex,
+                   let closeRange = s.range(of: "**", range: contentStart..<s.endIndex) {
+                    let inner = s[contentStart..<closeRange.lowerBound]
+                    if !inner.isEmpty, !inner.contains("\n"), !inner.contains("`") {
+                        result.append(boldOpenSentinel)
+                        result.append(contentsOf: inner)
+                        result.append(boldCloseSentinel)
+                        i = closeRange.upperBound
+                        continue
+                    }
+                }
+            }
+            result.append(ch)
+            i = s.index(after: i)
+        }
+        return result
+    }
 
     static func inlineAttributed(_ s: String, baseFont: NSFont, color: NSColor) -> NSAttributedString {
+        let prepared = preprocessCJKBold(s)
         let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard let parsed = try? NSAttributedString(markdown: s, options: opts) else {
-            return NSAttributedString(string: s, attributes: [.font: baseFont, .foregroundColor: color])
+        let parsed: NSAttributedString
+        if let p = try? NSAttributedString(markdown: prepared, options: opts) {
+            parsed = p
+        } else {
+            parsed = NSAttributedString(string: prepared, attributes: [.font: baseFont, .foregroundColor: color])
         }
         let m = NSMutableAttributedString(attributedString: parsed)
-        let full = NSRange(location: 0, length: m.length)
+        var full = NSRange(location: 0, length: m.length)
 
         // 1) 字体统一到 baseFont 字号,保留粗/斜 traits
         m.enumerateAttribute(.font, in: full, options: []) { value, range, _ in
             let traits = (value as? NSFont)?.fontDescriptor.symbolicTraits ?? []
-            let d = baseFont.fontDescriptor.withSymbolicTraits(traits.intersection([.bold, .italic]))
-            let f = NSFont(descriptor: d, size: baseFont.pointSize) ?? baseFont
-            m.addAttribute(.font, value: f, range: range)
+            if traits.contains(.bold) {
+                m.addAttribute(.font, value: ClaudeTheme.boldFont(from: baseFont), range: range)
+            } else if traits.contains(.italic) {
+                let d = baseFont.fontDescriptor.withSymbolicTraits(.italic)
+                m.addAttribute(.font, value: NSFont(descriptor: d, size: baseFont.pointSize) ?? baseFont, range: range)
+            } else {
+                m.addAttribute(.font, value: baseFont, range: range)
+            }
         }
-        // 缺省字体的 run 兜底
         m.enumerateAttribute(.font, in: full, options: []) { value, range, _ in
             if value == nil { m.addAttribute(.font, value: baseFont, range: range) }
         }
         // 2) 统一前景色
         m.addAttribute(.foregroundColor, value: color, range: full)
-        // 3) 行内代码:等宽 + 浅底
+
+        // 2.5) 还原哨兵包裹的 CJK 粗体片段并赋予粗体 + 深炭黑强调色
+        let openStr = String(boldOpenSentinel)
+        let closeStr = String(boldCloseSentinel)
+        while true {
+            let ns = m.string as NSString
+            let openRange = ns.range(of: openStr)
+            guard openRange.location != NSNotFound else { break }
+            let searchStart = openRange.location + openRange.length
+            guard searchStart <= ns.length else {
+                m.deleteCharacters(in: openRange)
+                break
+            }
+            let closeRange = ns.range(of: closeStr, options: [], range: NSRange(location: searchStart, length: ns.length - searchStart))
+            guard closeRange.location != NSNotFound else {
+                m.deleteCharacters(in: openRange)
+                break
+            }
+            m.deleteCharacters(in: closeRange)
+            m.deleteCharacters(in: openRange)
+            let boldRange = NSRange(location: openRange.location, length: closeRange.location - searchStart)
+            if boldRange.length > 0 {
+                m.addAttribute(.font, value: ClaudeTheme.boldFont(from: baseFont), range: boldRange)
+                m.addAttribute(.foregroundColor, value: ClaudeTheme.inkStrong, range: boldRange)
+            }
+        }
+
+        full = NSRange(location: 0, length: m.length)
+        // 3) 行内代码:等宽 + 暖米灰底
         m.enumerateAttribute(.inlinePresentationIntent, in: full, options: []) { value, range, _ in
             guard let raw = (value as? NSNumber)?.uintValue ?? (value as? UInt) else { return }
             let intent = InlinePresentationIntent(rawValue: raw)
             if intent.contains(.code) {
-                let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize - 0.5, weight: .regular)
+                let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1.0, weight: .regular)
                 m.addAttribute(.font, value: mono, range: range)
-                m.addAttribute(.backgroundColor, value: NSColor.secondaryLabelColor.withAlphaComponent(0.12), range: range)
+                m.addAttribute(.backgroundColor, value: ClaudeTheme.pillHoverBg, range: range)
+                m.addAttribute(.foregroundColor, value: ClaudeTheme.inkStrong, range: range)
             }
         }
-        // 4) 链接:强调色 + 下划线
+        // 4) 链接:赤陶色 + 下划线
         m.enumerateAttribute(.link, in: full, options: []) { value, range, _ in
             if value != nil {
-                m.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+                m.addAttribute(.foregroundColor, value: ClaudeTheme.terracotta, range: range)
                 m.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             }
         }
         return m
     }
 
-    // MARK: 段落样式
+    // MARK: 段落样式(行高 ~1.7, 段间距 13pt)
 
     static func bodyStyle() -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 4
-        p.paragraphSpacing = 9
+        p.lineSpacing = 6.5
+        p.paragraphSpacing = 13
         return p
     }
 
-    // MARK: 标题
+    // MARK: 标题(一/二级采用衬线体拉开气质层级,三级左侧配赤陶色竖条)
 
     private static func heading(_ s: String) -> (Int, String)? {
         var n = 0
@@ -188,26 +351,30 @@ enum MD {
 
     private static func headingAttr(_ content: String, level: Int, baseFont: NSFont, color: NSColor) -> NSAttributedString {
         let size: CGFloat
-        let weight: NSFont.Weight
         let before: CGFloat, after: CGFloat
         switch level {
-        case 1: size = 19;   weight = .bold;     before = 12; after = 5
-        case 2: size = 16.5; weight = .bold;     before = 11; after = 4
-        case 3: size = 14.5; weight = .semibold; before = 9;  after = 3
-        default: size = 14;  weight = .semibold; before = 8;  after = 2
+        case 1: size = 22;   before = 14; after = 10
+        case 2: size = 20;   before = 16; after = 9
+        case 3: size = 15.5; before = 14; after = 6
+        default: size = 14.5; before = 10; after = 4
         }
-        let f = NSFont.systemFont(ofSize: size, weight: weight)
-        let m = NSMutableAttributedString(attributedString: inlineAttributed(content, baseFont: f, color: color))
+        let f = ClaudeTheme.serifHeadingFont(size: size)
+        let m = NSMutableAttributedString(attributedString: inlineAttributed(content, baseFont: f, color: ClaudeTheme.inkStrong))
         let p = NSMutableParagraphStyle()
         p.paragraphSpacingBefore = before
         p.paragraphSpacing = after
-        p.lineSpacing = 2
+        p.lineSpacing = 4
+        if level >= 3 {
+            p.firstLineHeadIndent = 11
+            p.headIndent = 11
+            m.addAttribute(subHeadingBarKey, value: true, range: NSRange(location: 0, length: m.length))
+        }
         m.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: m.length))
         m.append(NSAttributedString(string: "\n"))
         return m
     }
 
-    // MARK: 列表
+    // MARK: 列表(赤陶色 #D97757 微缩圆点)
 
     private struct Item { let leading: Int; let marker: String; let text: String }
 
@@ -250,14 +417,15 @@ enum MD {
     private static func listAttr(_ item: Item, level: Int, baseFont: NSFont, color: NSColor) -> NSAttributedString {
         let indent = 18 + CGFloat(level) * 18
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 4
-        p.paragraphSpacing = 4
+        p.lineSpacing = 6
+        p.paragraphSpacing = 7
         p.firstLineHeadIndent = max(0, indent - 16)
         p.headIndent = indent
         p.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
-        let bulletColor = item.marker == "•" ? NSColor.secondaryLabelColor : color
+        let bulletColor = item.marker == "•" ? ClaudeTheme.terracotta : ClaudeTheme.inkMuted
+        let bulletFont = item.marker == "•" ? NSFont.systemFont(ofSize: baseFont.pointSize + 2, weight: .bold) : baseFont
         let m = NSMutableAttributedString(string: item.marker + "\t",
-                                          attributes: [.font: baseFont, .foregroundColor: bulletColor, .paragraphStyle: p])
+                                          attributes: [.font: bulletFont, .foregroundColor: bulletColor, .paragraphStyle: p])
         let body = NSMutableAttributedString(attributedString: inlineAttributed(item.text, baseFont: baseFont, color: color))
         body.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: body.length))
         m.append(body)
@@ -336,22 +504,28 @@ enum MD {
         return out
     }
 
-    // MARK: 引用
+    // MARK: 引用(Claude 风格暖底圆角卡片 + 赤陶色点缀)
 
     private static func quoteAttr(_ s: String, baseFont: NSFont, color: NSColor) -> NSAttributedString {
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 4
-        p.paragraphSpacing = 8
+        p.lineSpacing = 6
+        p.paragraphSpacingBefore = 14
+        p.paragraphSpacing = 14
         p.firstLineHeadIndent = 14
         p.headIndent = 14
-        let bar = NSMutableAttributedString(string: "▎ ",
-            attributes: [.font: baseFont, .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: p])
+        p.tailIndent = -14
+        let icon = NSMutableAttributedString(string: "✦  ",
+            attributes: [.font: NSFont.systemFont(ofSize: baseFont.pointSize - 1, weight: .semibold),
+                         .foregroundColor: ClaudeTheme.terracotta,
+                         .paragraphStyle: p,
+                         quoteBlockKey: true])
         let body = NSMutableAttributedString(attributedString:
-            inlineAttributed(s, baseFont: baseFont, color: NSColor.secondaryLabelColor))
+            inlineAttributed(s, baseFont: baseFont, color: ClaudeTheme.inkBody))
         body.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: body.length))
-        bar.append(body)
-        bar.append(NSAttributedString(string: "\n"))
-        return bar
+        body.addAttribute(quoteBlockKey, value: true, range: NSRange(location: 0, length: body.length))
+        icon.append(body)
+        icon.append(NSAttributedString(string: "\n"))
+        return icon
     }
 
     // MARK: 代码块
@@ -362,15 +536,15 @@ enum MD {
         p.firstLineHeadIndent = 12      // 内部左右留白(底块满宽,文字缩进)
         p.headIndent = 12
         p.tailIndent = -12
-        p.lineSpacing = 3
-        p.paragraphSpacingBefore = 18   // 与上文(标题/正文)拉开距离(边框外扩 5px 后仍留 ~13px)
+        p.lineSpacing = 4
+        p.paragraphSpacingBefore = 18   // 与上文(标题/正文)拉开距离
         p.paragraphSpacing = 18         // 与下文拉开距离
         // 把每行的 \n 换成行分隔符 U+2028,使整块代码是「同一段落」——行间只走 lineSpacing,
         // 不再叠加段落间距(消除缝隙);满宽圆角底交给 CodeBlockLayoutManager 画(不再用碎的 .backgroundColor)。
         let oneParagraph = code.replacingOccurrences(of: "\n", with: "\u{2028}")
         let m = NSMutableAttributedString(string: oneParagraph, attributes: [
             .font: mono,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: ClaudeTheme.inkStrong,
             .paragraphStyle: p,
             codeBlockKey: true
         ])
@@ -393,53 +567,76 @@ enum MD {
         att.attachmentCell = cell
         let m = NSMutableAttributedString(attributedString: NSAttributedString(attachment: att))
         let p = NSMutableParagraphStyle()
-        p.paragraphSpacingBefore = 6
-        p.paragraphSpacing = 8
+        p.paragraphSpacingBefore = 8
+        p.paragraphSpacing = 10
         m.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: m.length))
         m.append(NSAttributedString(string: "\n"))
         return m
     }
 }
 
-// 在标记段落(代码块 / 追问气泡)后面画一块满宽圆角底,行间连续无缝
+// 在标记段落(代码块 / 引用卡片 / 追问气泡 / 三级标题赤陶竖条)后面画背景装饰
 final class CodeBlockLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         if let ts = textStorage {
             let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
             drawBlocks(MD.codeBlockKey, in: charRange, origin: origin, ts: ts,
-                       fill: NSColor.secondaryLabelColor.withAlphaComponent(0.13),
-                       stroke: NSColor.secondaryLabelColor.withAlphaComponent(0.30))
+                       fill: ClaudeTheme.codeBg,
+                       stroke: ClaudeTheme.codeBorder,
+                       radius: 8, padY: 8)
+            drawBlocks(MD.quoteBlockKey, in: charRange, origin: origin, ts: ts,
+                       fill: ClaudeTheme.calloutBg,
+                       stroke: ClaudeTheme.calloutBorder,
+                       radius: 10, padY: 9)
             drawBlocks(MD.userMsgKey, in: charRange, origin: origin, ts: ts,
-                       fill: NSColor.controlAccentColor.withAlphaComponent(0.12),
-                       stroke: NSColor.controlAccentColor.withAlphaComponent(0.28))
+                       fill: ClaudeTheme.terracottaSoft,
+                       stroke: ClaudeTheme.terracotta.withAlphaComponent(0.28),
+                       radius: 9, padY: 7)
+            drawSubHeadingBars(in: charRange, origin: origin, ts: ts)
         }
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
     }
 
     private func drawBlocks(_ key: NSAttributedString.Key, in charRange: NSRange, origin: NSPoint,
-                            ts: NSTextStorage, fill: NSColor, stroke: NSColor) {
+                            ts: NSTextStorage, fill: NSColor, stroke: NSColor, radius: CGFloat, padY: CGFloat) {
         ts.enumerateAttribute(key, in: charRange, options: []) { value, range, _ in
             guard (value as? Bool) == true else { return }
             let gr = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             guard let container = self.textContainer(forGlyphAt: gr.location, effectiveRange: nil) else { return }
-            // 用 usedRect(实际文字范围),不用 lineFragment rect——后者把段落上/下间距算进去会让边框吃进相邻文字;
-            // 用 usedRect 后,段落间距留在边框外,成为真正的间隔。
             var block = CGRect.null
             self.enumerateLineFragments(forGlyphRange: gr) { _, usedRect, _, _, _ in
                 block = block.isNull ? usedRect : block.union(usedRect)
             }
             guard !block.isNull else { return }
             let w = container.size.width
-            var r = CGRect(x: 3, y: block.minY, width: max(10, w - 6), height: block.height)
-            r = r.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: 0, dy: -7)   // 边框紧贴文字,留 7px 内边距
-            let path = NSBezierPath(roundedRect: r, xRadius: 7, yRadius: 7)
+            var r = CGRect(x: 2, y: block.minY, width: max(10, w - 4), height: block.height)
+            r = r.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: 0, dy: -padY)
+            let path = NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
             fill.setFill(); path.fill()
             stroke.setStroke(); path.lineWidth = 1; path.stroke()
         }
     }
+
+    private func drawSubHeadingBars(in charRange: NSRange, origin: NSPoint, ts: NSTextStorage) {
+        ts.enumerateAttribute(MD.subHeadingBarKey, in: charRange, options: []) { value, range, _ in
+            guard (value as? Bool) == true else { return }
+            let gr = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var block = CGRect.null
+            self.enumerateLineFragments(forGlyphRange: gr) { _, usedRect, _, _, _ in
+                block = block.isNull ? usedRect : block.union(usedRect)
+            }
+            guard !block.isNull else { return }
+            let barH = max(14, block.height - 4)
+            let barY = origin.y + block.minY + (block.height - barH) / 2
+            let barRect = CGRect(x: origin.x + 1, y: barY, width: 3.2, height: barH)
+            let path = NSBezierPath(roundedRect: barRect, xRadius: 1.6, yRadius: 1.6)
+            ClaudeTheme.terracotta.setFill()
+            path.fill()
+        }
+    }
 }
 
-// 画一条满宽细线的附件 cell(给 markdown 的 --- 用)
+// 画一条满宽暖色细线的附件 cell(给 markdown 的 --- 用)
 final class HRCell: NSTextAttachmentCell {
     private let w: CGFloat
     init(width: CGFloat) { self.w = max(10, width); super.init() }
@@ -451,7 +648,7 @@ final class HRCell: NSTextAttachmentCell {
         path.move(to: NSPoint(x: cellFrame.minX, y: y))
         path.line(to: NSPoint(x: cellFrame.minX + w, y: y))
         path.lineWidth = 1
-        NSColor.separatorColor.setStroke()
+        ClaudeTheme.windowBorder.setStroke()
         path.stroke()
     }
 }
