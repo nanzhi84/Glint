@@ -11,6 +11,7 @@ flowchart LR
     AppCore --> MD["块级 Markdown 渲染\n(Markdown.swift)"]
     AppCore --> Capture["框选截图模块\n(Screenshot.swift)"]
     AppCore --> SettingsUI["厂商设置界面\n(Settings.swift)"]
+    AppCore --> Brand["品牌图标与状态栏徽标\n(BrandLogo.swift)"]
     SettingsUI --> Config["配置与协议适配\n(Config.swift)"]
     AppCore --> Config
     Config --> LLM["多协议模型接口\n(OpenAI / Anthropic / Gemini)"]
@@ -21,7 +22,8 @@ flowchart LR
 - **块级 Markdown 渲染**（[popdict-app/Markdown.swift](../../popdict-app/Markdown.swift)）：将模型输出的 Markdown（标题、多级列表、GFM 表格、代码块、行内样式）解析为 AppKit `NSAttributedString`，并通过 `CodeBlockLayoutManager` 绘制代码块圆角底色，配套单测位于 [popdict-app/markdown_tests.swift](../../popdict-app/markdown_tests.swift)。
 - **框选截图模块**（[popdict-app/Screenshot.swift](../../popdict-app/Screenshot.swift)）：提供全屏遮罩框选（`RegionCapture`）、遮罩下层真实画面截取（`CGWindowListCreateImage`）及 PNG Base64 Data URL 编码。
 - **配置持久化与多协议适配**（[popdict-app/Config.swift](../../popdict-app/Config.swift)、[popdict-app/Settings.swift](../../popdict-app/Settings.swift)）：管理多厂商配置列表（`Provider` / `AppConfig`），内置 **DeepSeek**、**Gemini**、**Vertex AI**、**MiMo** 四大官方预设，支持 `OpenAI 兼容`、`Anthropic 兼容`、`Gemini 兼容` 三种协议的请求构造与流式/非流式解析，读写 `~/.config/popdict/config.json`，配套单测位于 [popdict-app/provider_tests.swift](../../popdict-app/provider_tests.swift)。
-- **构建与打包脚本**（[popdict-app/build.sh](../../popdict-app/build.sh)）：编译 `arm64 + x86_64` 通用二进制、组装 `popdict.app`、执行代码签名并打包 `popdict.dmg`。
+- **品牌图标与菜单栏矢量徽标**（[popdict-app/BrandLogo.swift](../../popdict-app/BrandLogo.swift)）：采用与 `ClaudeTheme` 统一的暖纸书卷（`#FAF9F5`）与赤陶星芒（`#D97757`）设计语言，绘制 macOS 应用图标（`popdict.icns` / `NSApp.applicationIconImage`）及自适应明暗模式的 18×18 菜单栏 Template 矢量图标（`NSStatusItem`）。
+- **构建与打包脚本**（[popdict-app/build.sh](../../popdict-app/build.sh)）：编译 `arm64 + x86_64` 通用二进制、生成 `popdict.icns` 应用图标、组装 `popdict.app`、执行代码签名并打包 `popdict.dmg`。
 
 ## 2. 核心执行链路与数据流
 

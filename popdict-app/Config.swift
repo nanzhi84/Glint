@@ -413,16 +413,71 @@ struct Provider: Codable, Equatable {
     }
 }
 
+struct SupportedLanguage: Equatable {
+    let code: String
+    let displayName: String
+}
+
 final class AppConfig {
     static let shared = AppConfig()
+    static let languagePlaceholder = "<languages>"
+    static let defaultLanguage = "Simplified Chinese"
+
+    static let supportedLanguages: [SupportedLanguage] = [
+        SupportedLanguage(code: "Simplified Chinese", displayName: "简体中文 (Simplified Chinese)"),
+        SupportedLanguage(code: "Traditional Chinese", displayName: "繁體中文 (Traditional Chinese)"),
+        SupportedLanguage(code: "English", displayName: "英语 (English)"),
+        SupportedLanguage(code: "Japanese", displayName: "日语 (Japanese)"),
+        SupportedLanguage(code: "Korean", displayName: "韩语 (Korean)"),
+        SupportedLanguage(code: "Russian", displayName: "俄语 (Russian)"),
+        SupportedLanguage(code: "French", displayName: "法语 (French)"),
+        SupportedLanguage(code: "German", displayName: "德语 (German)"),
+        SupportedLanguage(code: "Spanish", displayName: "西班牙语 (Spanish)"),
+        SupportedLanguage(code: "Portuguese", displayName: "葡萄牙语 (Portuguese)"),
+        SupportedLanguage(code: "Arabic", displayName: "阿拉伯语 (Arabic)")
+    ]
+
+    static let defaultTranslatePrompt = "You are a professional translation engine. Translate the user's text into <languages>. Output ONLY the translation itself — no explanations, no quotes, no extra words."
+
+    static let defaultExplainPrompt = """
+    你是一个善于把复杂概念和代码讲清楚的助手。请以 <languages> 回答,解释用户给出的内容,帮他真正理解。
+    - 如果是代码:先说它整体在做什么,再逐步拆解关键逻辑,点出涉及的语法、库或设计意图,必要时给一句类比或小例子。
+    - 如果是术语、论文或概念:先用 `## 整体在讲什么` 一两段话点透核心主旨,再用 `## 关键概念拆解` 配合 `### 子概念标题` 分模块讲清它是什么、为什么重要、怎么运作。
+    - 如果是图片:先一句说清这张图整体是什么(截图/图表/报错/界面/照片/文档…),再解读其中关键信息。报错或代码截图就定位问题并给排查/解决方向;图表就读出趋势与要点;界面或流程就说清它在干什么。
+    - 内容简短就简短回答(几句话点透),内容复杂就分点详解。直接开始,不要寒暄,不要复述原文。
+    - 后续若有追问,延续上下文回答。
+    """
+
+    static func resolvePrompt(_ prompt: String, language: String) -> String {
+        let lang = language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? defaultLanguage : language
+        return prompt.replacingOccurrences(of: languagePlaceholder, with: lang)
+    }
+
     private(set) var providers: [Provider] = []
     private(set) var activeName: String = ""
+    private(set) var language: String = AppConfig.defaultLanguage
+    private(set) var translatePrompt: String = AppConfig.defaultTranslatePrompt
+    private(set) var explainPrompt: String = AppConfig.defaultExplainPrompt
     private var path: String { kConfigDir + "/config.json" }
+
+    var resolvedTranslatePrompt: String {
+        AppConfig.resolvePrompt(translatePrompt, language: language)
+    }
+
+    var resolvedExplainPrompt: String {
+        AppConfig.resolvePrompt(explainPrompt, language: language)
+    }
 
     // 当前厂商:按名字找;找不到回退第一条(永不为 nil,只要至少一条)
     var active: Provider? { providers.first { $0.name == activeName } ?? providers.first }
 
-    private struct Stored: Codable { var active: String; var providers: [Provider] }
+    private struct Stored: Codable {
+        var active: String
+        var providers: [Provider]
+        var language: String?
+        var translatePrompt: String?
+        var explainPrompt: String?
+    }
 
     // 官方支持的四大预置厂商: DeepSeek、Gemini、Vertex AI、MiMo
     static func presets() -> [Provider] {
@@ -504,7 +559,14 @@ final class AppConfig {
             let merged = AppConfig.mergeOfficialPresets(into: stored.providers)
             providers = merged
             activeName = stored.active
-            if merged != stored.providers {
+            let rawLang = stored.language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            language = rawLang.isEmpty ? AppConfig.defaultLanguage : rawLang
+            let rawTrans = stored.translatePrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            translatePrompt = rawTrans.isEmpty ? AppConfig.defaultTranslatePrompt : (stored.translatePrompt ?? AppConfig.defaultTranslatePrompt)
+            let rawExplain = stored.explainPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let isLegacyExplainDefault = rawExplain.contains("- 排版纪律:列表项 `- ` 内部**仅对核心术语或短标签保留加粗**")
+            explainPrompt = (rawExplain.isEmpty || isLegacyExplainDefault) ? AppConfig.defaultExplainPrompt : (stored.explainPrompt ?? AppConfig.defaultExplainPrompt)
+            if merged != stored.providers || stored.language == nil || stored.translatePrompt == nil || stored.explainPrompt == nil || isLegacyExplainDefault {
                 save()
             }
             return
@@ -516,13 +578,23 @@ final class AppConfig {
         }
         providers = ps
         activeName = "MiMo"
+        language = AppConfig.defaultLanguage
+        translatePrompt = AppConfig.defaultTranslatePrompt
+        explainPrompt = AppConfig.defaultExplainPrompt
         save()
     }
 
     @discardableResult
     func save() -> Bool {
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? enc.encode(Stored(active: activeName, providers: providers)) else { return false }
+        let payload = Stored(
+            active: activeName,
+            providers: providers,
+            language: language,
+            translatePrompt: translatePrompt,
+            explainPrompt: explainPrompt
+        )
+        guard let data = try? enc.encode(payload) else { return false }
         try? FileManager.default.createDirectory(atPath: kConfigDir, withIntermediateDirectories: true, attributes: nil)
         do { try data.write(to: URL(fileURLWithPath: path), options: .atomic); return true }
         catch { return false }
@@ -536,6 +608,20 @@ final class AppConfig {
         activeName = active
         if save() { return true }
         providers = oldP; activeName = oldA
+        return false
+    }
+
+    @discardableResult
+    func setLanguageAndPrompts(language newLang: String, translatePrompt newTrans: String, explainPrompt newExplain: String) -> Bool {
+        let oldL = language, oldT = translatePrompt, oldE = explainPrompt
+        let cleanL = newLang.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanT = newTrans.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanE = newExplain.trimmingCharacters(in: .whitespacesAndNewlines)
+        language = cleanL.isEmpty ? AppConfig.defaultLanguage : cleanL
+        translatePrompt = cleanT.isEmpty ? AppConfig.defaultTranslatePrompt : newTrans
+        explainPrompt = cleanE.isEmpty ? AppConfig.defaultExplainPrompt : newExplain
+        if save() { return true }
+        language = oldL; translatePrompt = oldT; explainPrompt = oldE
         return false
     }
 }

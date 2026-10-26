@@ -57,19 +57,12 @@ func logLine(_ s: String) {
     }
 }
 
-// MARK: - API Key / 语言判断
+// MARK: - API Key 读取
 
 // 当前厂商的 key(空算无);供菜单状态等处复用
 func readAPIKey() -> String? {
     guard let k = AppConfig.shared.active?.apiKey, !k.isEmpty else { return nil }
     return k
-}
-
-func hasChinese(_ s: String) -> Bool {
-    for scalar in s.unicodeScalars {
-        if scalar.value >= 0x4E00 && scalar.value <= 0x9FFF { return true }
-    }
-    return false
 }
 
 // AppKit(左下原点)↔ Quartz(左上原点)翻转的基准高度:主屏的高度。
@@ -149,8 +142,7 @@ func translate(_ text: String, completion: @escaping (String?, String?) -> Void)
         completion(nil, "没配置 API Key。请点菜单栏 🌐 →「设置…」→「自定义厂商」填入当前厂商的 Key")
         return
     }
-    let target = hasChinese(text) ? "English" : "Simplified Chinese"
-    let sys = "You are a professional translation engine. Translate the user's text into \(target). Output ONLY the translation itself — no explanations, no quotes, no extra words."
+    let sys = AppConfig.shared.resolvedTranslatePrompt
 
     let messages: [[String: Any]] = [
         ["role": "system", "content": sys],
@@ -179,17 +171,6 @@ func translate(_ text: String, completion: @escaping (String?, String?) -> Void)
 }
 
 // MARK: - 解释 / 追问(支持 OpenAI / Anthropic / Gemini 流式 / SSE)
-
-// 解释用的 system prompt(自适应:代码拆解、概念大白话;短则短答长则分点;契合 Claude Blog 排版层级)
-let kExplainSystem = """
-你是一个善于把复杂概念和代码讲清楚的助手。请用简体中文解释用户给出的内容,帮他真正理解。
-- 如果是代码:先说它整体在做什么,再逐步拆解关键逻辑,点出涉及的语法、库或设计意图,必要时给一句类比或小例子。
-- 如果是术语、论文或概念:先用 `## 整体在讲什么` 一两段话点透核心主旨,再用 `## 关键概念拆解` 配合 `### 子概念标题` 分模块讲清它是什么、为什么重要、怎么运作。
-- 如果是图片:先一句说清这张图整体是什么(截图/图表/报错/界面/照片/文档…),再解读其中关键信息。报错或代码截图就定位问题并给排查/解决方向;图表就读出趋势与要点;界面或流程就说清它在干什么。
-- 排版纪律:列表项 `- ` 内部**仅对核心术语或短标签保留加粗**(如 `- **传统做法**：...`),严禁将整句长句加粗;结尾若适合给出一句话直觉总结或类比,请用 `> 一句话类比：...` 引用块呈现。
-- 内容简短就简短回答(几句话点透),内容复杂就分点详解。直接开始,不要寒暄,不要复述原文。
-- 后续若有追问,延续上下文回答。
-"""
 
 // 通用流式对话:messages 为完整消息数组(含 system);逐字回吐(打字机)。
 // 返回可取消的 Task;无 key 等同步错误时回调 onError 并返回 nil。
@@ -1448,7 +1429,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         assistantAccum = ""
         setInputEnabled(false, placeholder: "正在生成…")
         let gen = generation   // 令牌:关窗/换会话(generation+1)后,旧流式回调一律作废,防止污染新会话
-        var messages: [[String: Any]] = [["role": "system", "content": kExplainSystem]]
+        var messages: [[String: Any]] = [["role": "system", "content": AppConfig.shared.resolvedExplainPrompt]]
         for (i, m) in convo.enumerated() {
             if i == 0, m.role == "user", let dataURL = attachedImageDataURL {
                 let content: [[String: Any]] = [
@@ -1942,6 +1923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var activeCapture: RegionCapture?      // 截图期间强持有 RegionCapture,避免遮罩提前释放
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.applicationIconImage = BrandLogo.appIconImage()
         enableBackgroundCursorSetting()        // 允许 nonactivatingPanel 在后台应用下切换工字形 I-Beam 光标
         NSMenuItem.popdictDisableAutoIcons()   // 关掉 macOS 26 的菜单自动图标(否则「设置…」齿轮致整菜单缩进)
         ensureConfigDir()
@@ -1971,7 +1953,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             self.settings.selectTab(2)
                             logLine("UITEST settings tab=2 (服务商) frame=\(self.settings.windowObject?.frame ?? .zero)")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                NSApp.terminate(nil)
+                                self.settings.selectTab(3)
+                                logLine("UITEST settings tab=3 (语言) frame=\(self.settings.windowObject?.frame ?? .zero)")
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    NSApp.terminate(nil)
+                                }
                             }
                         }
                     }
@@ -2052,8 +2038,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "🌐"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let btn = item.button {
+            btn.image = BrandLogo.menuBarIcon()
+            btn.imagePosition = .imageOnly
+            btn.toolTip = "popdict"
+        }
         item.menu = buildMenu()
         statusItem = item
     }

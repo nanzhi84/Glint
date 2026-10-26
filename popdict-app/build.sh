@@ -20,12 +20,24 @@ else
     SIGN_IDENTITY="-"
 fi
 
-echo "==> 1/5 编译 universal 二进制 (arm64 + x86_64)"
-SRCS="main.swift Geometry.swift Markdown.swift Screenshot.swift Config.swift Settings.swift"
+echo "==> 1/5 编译 universal 二进制 (arm64 + x86_64) 与生成品牌图标 (popdict.icns)"
+SRCS="main.swift Geometry.swift Markdown.swift Screenshot.swift Config.swift Settings.swift BrandLogo.swift"
 swiftc $SRCS -target arm64-apple-macos${MIN_OS}  -o /tmp/popdict_arm64 -swift-version 5 -framework AppKit -framework ApplicationServices -framework Carbon -O
 swiftc $SRCS -target x86_64-apple-macos${MIN_OS} -o /tmp/popdict_x86   -swift-version 5 -framework AppKit -framework ApplicationServices -framework Carbon -O
 lipo -create -output /tmp/popdict_uni /tmp/popdict_arm64 /tmp/popdict_x86
 echo "    架构: $(lipo -archs /tmp/popdict_uni)"
+
+ICONSET_TMP="$(mktemp -d)/popdict.iconset"
+ICON_GEN_SRC="$(mktemp -d)/main.swift"
+cat > "$ICON_GEN_SRC" <<'SWIFT'
+import Foundation
+let url = URL(fileURLWithPath: CommandLine.arguments[1])
+try! BrandLogo.writeIconset(to: url)
+SWIFT
+swiftc BrandLogo.swift "$ICON_GEN_SRC" -o /tmp/popdict_icongen -framework AppKit
+/tmp/popdict_icongen "$ICONSET_TMP"
+iconutil -c icns "$ICONSET_TMP" -o "$HERE/popdict.icns"
+rm -rf "$(dirname "$ICONSET_TMP")" "$(dirname "$ICON_GEN_SRC")" /tmp/popdict_icongen
 
 echo "==> 2/5 组装 $APP"
 rm -rf "$APP"

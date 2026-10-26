@@ -17,3 +17,5 @@ popdict-app/popdict
 # Universal Harness runtime & verification sandboxes
 work/
 artifacts/
+__pycache__/
+*.pyc

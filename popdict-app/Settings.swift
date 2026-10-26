@@ -181,12 +181,21 @@ final class SettingsController: NSObject {
     private let activeButton = NSButton(title: "设为当前使用", target: nil, action: nil)
     private let deleteButton = NSButton(title: "删除此服务商", target: nil, action: nil)
 
+    // Tab 3: 语言与 Prompt 控件
+    private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let translatePromptTextView = NSTextView()
+    private let explainPromptTextView = NSTextView()
+    private let resetPromptsButton = NSButton(title: "恢复默认 Prompt", target: nil, action: nil)
+
     private var nameRow: NSStackView?
     private var formatRow: NSStackView?
     private var baseRow: NSStackView?
     private var deleteRow: NSStackView?
 
     private var working: [Provider] = []
+    private var workingLanguage: String = AppConfig.defaultLanguage
+    private var workingTranslatePrompt: String = AppConfig.defaultTranslatePrompt
+    private var workingExplainPrompt: String = AppConfig.defaultExplainPrompt
     private var activeIndex = 0
     private var selected = 0
     private let newItemTag = 9999
@@ -196,11 +205,15 @@ final class SettingsController: NSObject {
         if window == nil { build() }
         working = AppConfig.shared.providers
         if working.isEmpty { working = AppConfig.presets() }
+        workingLanguage = AppConfig.shared.language
+        workingTranslatePrompt = AppConfig.shared.translatePrompt
+        workingExplainPrompt = AppConfig.shared.explainPrompt
         activeIndex = working.firstIndex { $0.name == AppConfig.shared.activeName } ?? 0
         selected = activeIndex
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled() ? .on : .off
         rebuildPopup()
         loadForm()
+        loadLanguageForm()
         refreshPermissions()
         selectTab(tab ?? currentTabIndex)
         NSApp.activate(ignoringOtherApps: true)
@@ -211,6 +224,7 @@ final class SettingsController: NSObject {
     func selectTab(_ index: Int) {
         guard index >= 0, index < tabViews.count else { return }
         flushForm()
+        flushLanguageForm()
         currentTabIndex = index
         for (i, btn) in tabButtons.enumerated() {
             btn.isSelected = (i == index)
@@ -224,7 +238,7 @@ final class SettingsController: NSObject {
     var windowObject: NSWindow? { window }
 
     private func build() {
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 470),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "偏好设置"
         win.isReleasedWhenClosed = false
@@ -232,7 +246,8 @@ final class SettingsController: NSObject {
         let b0 = PrefTabButton(index: 0, symbol: "gearshape", title: "基础", target: self, action: #selector(onTabClicked(_:)))
         let b1 = PrefTabButton(index: 1, symbol: "checkmark.shield", title: "权限", target: self, action: #selector(onTabClicked(_:)))
         let b2 = PrefTabButton(index: 2, symbol: "cpu", title: "服务商", target: self, action: #selector(onTabClicked(_:)))
-        tabButtons = [b0, b1, b2]
+        let b3 = PrefTabButton(index: 3, symbol: "globe", title: "语言", target: self, action: #selector(onTabClicked(_:)))
+        tabButtons = [b0, b1, b2, b3]
 
         let tabBar = NSStackView(views: tabButtons)
         tabBar.orientation = .horizontal
@@ -250,7 +265,8 @@ final class SettingsController: NSObject {
         let vBasic = buildBasicTab()
         let vPerm = buildPermissionsTab()
         let vProv = buildProvidersTab()
-        tabViews = [vBasic, vPerm, vProv]
+        let vLang = buildLanguageTab()
+        tabViews = [vBasic, vPerm, vProv, vLang]
 
         for v in tabViews {
             v.translatesAutoresizingMaskIntoConstraints = false
@@ -494,6 +510,130 @@ final class SettingsController: NSObject {
         return container
     }
 
+    // MARK: - Tab 3: 语言与自定义 Prompt
+    private func buildLanguageTab() -> NSView {
+        languagePopup.target = self
+        languagePopup.action = #selector(onLanguagePopupChanged)
+        languagePopup.translatesAutoresizingMaskIntoConstraints = false
+        languagePopup.widthAnchor.constraint(equalToConstant: 230).isActive = true
+
+        let langMenu = NSMenu()
+        for lang in AppConfig.supportedLanguages {
+            let item = NSMenuItem(title: lang.displayName, action: nil, keyEquivalent: "")
+            item.representedObject = lang.code
+            langMenu.addItem(item)
+        }
+        languagePopup.menu = langMenu
+
+        resetPromptsButton.target = self
+        resetPromptsButton.action = #selector(onResetPrompts)
+        resetPromptsButton.bezelStyle = .rounded
+        resetPromptsButton.controlSize = .small
+
+        let langTopBar = NSStackView(views: [languagePopup, resetPromptsButton])
+        langTopBar.orientation = .horizontal
+        langTopBar.spacing = 10
+        langTopBar.alignment = .centerY
+
+        let langHint = NSTextField(wrappingLabelWithString: "替换下方 Prompt 中的 <languages> 占位符（若删掉占位符，则语言选择对该 Prompt 不生效）。")
+        langHint.font = .systemFont(ofSize: 11)
+        langHint.textColor = .secondaryLabelColor
+        langHint.preferredMaxLayoutWidth = 365
+
+        let langCol = NSStackView(views: [langTopBar, langHint])
+        langCol.orientation = .vertical
+        langCol.alignment = .leading
+        langCol.spacing = 4
+        let langRow = fieldRowTop("目标语言", langCol)
+
+        let transScroll = makePromptEditorScrollView(textView: translatePromptTextView, height: 68)
+        let transRow = fieldRowTop("翻译 Prompt", transScroll)
+
+        let explainScroll = makePromptEditorScrollView(textView: explainPromptTextView, height: 148)
+        let explainRow = fieldRowTop("解释 Prompt", explainScroll)
+
+        let vGap = NSView()
+        vGap.translatesAutoresizingMaskIntoConstraints = false
+        vGap.setContentHuggingPriority(.defaultLow, for: .vertical)
+
+        let sep = NSBox()
+        sep.boxType = .separator
+        sep.alphaValue = 0.45
+        sep.translatesAutoresizingMaskIntoConstraints = false
+
+        let saveBtn = NSButton(title: "保存", target: self, action: #selector(save))
+        saveBtn.bezelStyle = .rounded
+        saveBtn.keyEquivalent = "\r"
+        let closeBtn = NSButton(title: "关闭", target: self, action: #selector(closeWin))
+        closeBtn.bezelStyle = .rounded
+        let bottom = NSStackView(views: [hSpacer(), closeBtn, saveBtn])
+        bottom.orientation = .horizontal
+        bottom.spacing = 8
+
+        let stack = NSStackView(views: [langRow, transRow, explainRow, vGap, sep, bottom])
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 28, bottom: 14, right: 28)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            sep.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -56),
+            bottom.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -56),
+        ])
+        return container
+    }
+
+    private func makePromptEditorScrollView(textView: NSTextView, height: CGFloat) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.borderType = .bezelBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scroll.widthAnchor.constraint(equalToConstant: 365),
+            scroll.heightAnchor.constraint(equalToConstant: height),
+        ])
+
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.font = .monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        textView.textColor = .labelColor
+        textView.backgroundColor = .textBackgroundColor
+        textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 350, height: CGFloat.greatestFiniteMagnitude)
+
+        scroll.documentView = textView
+        return scroll
+    }
+
+    private func fieldRowTop(_ t: String, _ field: NSView) -> NSStackView {
+        let l = NSTextField(labelWithString: t)
+        l.font = .systemFont(ofSize: 12)
+        l.textColor = .secondaryLabelColor
+        l.alignment = .right
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.widthAnchor.constraint(equalToConstant: 78).isActive = true
+        let r = NSStackView(views: [l, field])
+        r.orientation = .horizontal
+        r.spacing = 10
+        r.alignment = .top
+        return r
+    }
+
     // MARK: - 权限与概览状态刷新
     func refreshPermissions() {
         let axOK = AXIsProcessTrusted()
@@ -723,13 +863,56 @@ final class SettingsController: NSObject {
         refreshPermissions()
     }
 
+    private func loadLanguageForm() {
+        if let idx = AppConfig.supportedLanguages.firstIndex(where: { $0.code == workingLanguage }) {
+            languagePopup.selectItem(at: idx)
+        } else {
+            languagePopup.selectItem(at: 0)
+        }
+        translatePromptTextView.string = workingTranslatePrompt
+        explainPromptTextView.string = workingExplainPrompt
+    }
+
+    private func flushLanguageForm() {
+        if let code = languagePopup.selectedItem?.representedObject as? String, !code.isEmpty {
+            workingLanguage = code
+        }
+        let tStr = translatePromptTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tStr.isEmpty {
+            workingTranslatePrompt = translatePromptTextView.string
+        }
+        let eStr = explainPromptTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !eStr.isEmpty {
+            workingExplainPrompt = explainPromptTextView.string
+        }
+    }
+
+    @objc private func onLanguagePopupChanged() {
+        flushLanguageForm()
+    }
+
+    @objc private func onResetPrompts() {
+        workingTranslatePrompt = AppConfig.defaultTranslatePrompt
+        workingExplainPrompt = AppConfig.defaultExplainPrompt
+        translatePromptTextView.string = workingTranslatePrompt
+        explainPromptTextView.string = workingExplainPrompt
+    }
+
     @objc private func save() {
         flushForm()
+        flushLanguageForm()
         if working.contains(where: { $0.name.isEmpty }) { alert("每个服务商都要有名字"); return }
         if Set(working.map { $0.name }).count != working.count { alert("服务商名字不能重复"); return }
         let activeName = working[max(0, min(activeIndex, working.count - 1))].name
         if !AppConfig.shared.setProviders(working, active: activeName) {
             alert("保存失败:无法写入配置文件(~/.config/popdict)。请检查磁盘空间或目录权限。"); return
+        }
+        if !AppConfig.shared.setLanguageAndPrompts(
+            language: workingLanguage,
+            translatePrompt: workingTranslatePrompt,
+            explainPrompt: workingExplainPrompt
+        ) {
+            alert("保存语言与 Prompt 配置失败:无法写入配置文件(~/.config/popdict)。"); return
         }
         gAppDelegate?.refreshMenu()
         window?.close()
