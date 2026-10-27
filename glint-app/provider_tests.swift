@@ -43,9 +43,9 @@ struct ProviderTests {
                 && !APIFormat.gemini.defaultBaseURL.isEmpty,
                "APIFormat.defaultBaseURL: 提供非空默认 BaseURL")
 
-        expect(APIFormat.customSelectableCases == [.openai, .anthropic]
-                && !APIFormat.customSelectableCases.contains(.gemini),
-               "APIFormat.customSelectableCases: 自定义厂商仅开放 [.openai, .anthropic]，不含 .gemini")
+        expect(APIFormat.customSelectableCases == [.openai, .anthropic, .gemini]
+                && APIFormat.customSelectableCases.contains(.gemini),
+               "APIFormat.customSelectableCases: 自定义厂商同时开放 [.openai, .anthropic, .gemini]，包含 .gemini")
 
         // —— 2. 流式事件枚举 StreamEvent 契约 ——
         expect(StreamEvent.ignore == .ignore

@@ -33,7 +33,7 @@
    - 偏好设置窗口顶部采用 macOS 原生工具栏图标样式 Tab 栏，包含：
      1. **「基础」**：提供「在开机时启动」复选框（通过 `LaunchAtLogin` 管理 `~/Library/LaunchAgents/com.yoryon.glint.plist` 与 `SMAppService`）。
      2. **「权限」**：展示辅助功能与屏幕录制权限状态及快捷跳转设置按钮。
-     3. **「服务商」**：下拉菜单在 **Vertex AI**、**Gemini**、**DeepSeek**、**MiMo** 前置展示官方彩色品牌 Logo；选中官方预设平台时隐藏 `名字`、`接口格式`、`Base URL` 与 `删除此厂商`，仅在新增/编辑自定义厂商时展示（且自定义厂商「接口格式」仅提供 `OpenAI 兼容` 与 `Anthropic 兼容`）。
+     3. **「服务商」**：下拉菜单在 **Vertex AI**、**Gemini**、**DeepSeek**、**MiMo** 前置展示官方彩色品牌 Logo；选中官方预设平台时隐藏 `名字`、`接口格式`、`Base URL` 与 `删除此厂商`，仅在新增/编辑自定义厂商时展示（自定义厂商「接口格式」同时开放 `OpenAI 兼容`、`Anthropic 兼容` 与 `Gemini 兼容`）。
 
 ## 3. 影响与后果 (Consequences)
 

@@ -13,9 +13,9 @@ enum APIFormat: String, Codable, CaseIterable, Equatable {
     case anthropic = "anthropic"
     case gemini = "gemini"
 
-    // 新增自定义厂商时仅展示 OpenAI 兼容与 Anthropic 兼容
+    // 新增自定义服务商时开放全部三种协议格式
     static var customSelectableCases: [APIFormat] {
-        [.openai, .anthropic]
+        [.openai, .anthropic, .gemini]
     }
 
     var displayName: String {
