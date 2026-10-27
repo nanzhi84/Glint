@@ -1,0 +1,1583 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glint — 划词即译 · 划词即解 · 截图即解 | 原生 macOS 桌面 AI 助手</title>
+  <meta
+    name="description"
+    content="划词优先的原生 macOS 桌面 AI 助手。划词翻译、深度解释、多轮追问、⌃⌥E 截图讲解一次完成，自带 API Key 直连主流模型服务商，不用切换应用，不打断阅读心流。"
+  />
+  <link rel="icon" type="image/svg+xml" href="images/logo.svg" />
+  <link rel="apple-touch-icon" href="images/logo.svg" />
+  <style>
+    /* ==========================================================================
+       ClaudeTheme — Anthropic Editorial Warm Paper Palette & Typography Tokens
+       ========================================================================== */
+    :root {
+      color-scheme: light;
+      --paper-bg: #FAF9F5;           /* 暖米白主背景 */
+      --paper-alt-bg: #F5F4EF;       /* 次级暖底 */
+      --pill-hover-bg: #EFECE6;      /* 悬停暖色块 */
+      --callout-bg: #F3EFE6;         /* 引用暖底 */
+      --callout-border: #E8E3D7;     /* 引用细边框 */
+      --code-bg: #F2EFE8;            /* 代码块暖底 */
+      --code-border: #E3E1D8;        /* 细边框 */
+      --window-border: #E8E6DE;      /* 窗口外边框与分割线 */
+      --pill-border: #E3E1D8;        /* 悬浮条边框 */
+      --ink-strong: #141413;         /* 标题纯深色 */
+      --ink-body: #2D2D2A;           /* 正文暖深炭灰 */
+      --ink-muted: #73726C;          /* 次要文字 */
+      --terracotta: #D97757;         /* Anthropic 赤陶色 */
+      --terracotta-hover: #C05A39;   /* 赤陶悬停 */
+      --terracotta-soft: rgba(217, 119, 87, 0.14);
+      --terracotta-border: rgba(217, 119, 87, 0.28);
+      --header-glass: rgba(250, 249, 245, 0.84);
+      --shadow-soft: 0 12px 32px rgba(20, 20, 19, 0.05), 0 2px 6px rgba(20, 20, 19, 0.03);
+      --shadow-elevated: 0 24px 56px rgba(20, 20, 19, 0.10), 0 4px 14px rgba(20, 20, 19, 0.05);
+
+      --font-serif: "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSongti-SC-Bold", Georgia, "Times New Roman", serif;
+      --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Inter", system-ui, sans-serif;
+      --font-mono: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --paper-bg: #171614;
+      --paper-alt-bg: #1F1E1B;
+      --pill-hover-bg: #2A2824;
+      --callout-bg: #25231F;
+      --callout-border: #36332D;
+      --code-bg: #22201C;
+      --code-border: #35322C;
+      --window-border: #2E2C27;
+      --pill-border: #38352E;
+      --ink-strong: #FAF9F5;
+      --ink-body: #DCD9D0;
+      --ink-muted: #9B988E;
+      --terracotta: #E28364;
+      --terracotta-hover: #EE9070;
+      --terracotta-soft: rgba(226, 131, 100, 0.16);
+      --terracotta-border: rgba(226, 131, 100, 0.34);
+      --header-glass: rgba(23, 22, 20, 0.84);
+      --shadow-soft: 0 14px 36px rgba(0, 0, 0, 0.36), 0 2px 8px rgba(0, 0, 0, 0.22);
+      --shadow-elevated: 0 28px 64px rgba(0, 0, 0, 0.52), 0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--paper-bg);
+      color: var(--ink-body);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background-color: var(--paper-bg);
+      color: var(--ink-body);
+      overflow-x: hidden;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      background-image: radial-gradient(circle at 50% 0%, var(--terracotta-soft) 0%, transparent 58%);
+      background-repeat: no-repeat;
+      background-size: 100% 620px;
+    }
+
+    /* Dual-language visibility control */
+    html[lang^="zh"] [data-lang="en"] {
+      display: none !important;
+    }
+    html[lang^="en"] [data-lang="zh"] {
+      display: none !important;
+    }
+
+    /* Theme icon visibility */
+    html[data-theme="light"] .theme-icon-sun {
+      display: none;
+    }
+    html[data-theme="dark"] .theme-icon-moon {
+      display: none;
+    }
+
+    /* ==========================================================================
+       Header Navigation (Minimalist, Frameless Actions without Rounded Cards)
+       ========================================================================== */
+    .site-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.9rem 2.25rem;
+      background-color: var(--header-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--window-border);
+      transition: background-color 0.25s ease, border-color 0.25s ease;
+    }
+
+    .brand-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      text-decoration: none;
+      color: var(--ink-strong);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      transition: transform 0.2s ease;
+    }
+
+    .brand-link:hover .brand-logo {
+      transform: scale(1.05);
+    }
+
+    .brand-name {
+      font-family: var(--font-serif);
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink-strong);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1.35rem;
+    }
+
+    .header-bare-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.42rem;
+      padding: 0.25rem;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      color: var(--ink-body);
+      font-family: var(--font-sans);
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.18s ease, transform 0.18s ease;
+    }
+
+    .header-bare-action:hover {
+      color: var(--terracotta);
+      transform: translateY(-1px);
+    }
+
+    /* ==========================================================================
+       Hero Section
+       ========================================================================== */
+    .hero-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 8.5rem 2rem 5rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.36rem 0.95rem;
+      border-radius: 999px;
+      background-color: var(--callout-bg);
+      border: 1px solid var(--callout-border);
+      color: var(--ink-body);
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-eyebrow .sparkle {
+      color: var(--terracotta);
+      font-size: 0.95rem;
+    }
+
+    .hero-title {
+      font-family: var(--font-serif);
+      font-size: clamp(2.4rem, 5.2vw, 3.85rem);
+      font-weight: 700;
+      line-height: 1.16;
+      letter-spacing: -0.02em;
+      color: var(--ink-strong);
+      margin: 0 0 1.25rem;
+    }
+
+    .hero-title .accent-underline {
+      position: relative;
+      display: inline-block;
+      color: var(--ink-strong);
+    }
+
+    .hero-title .accent-underline::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0.06em;
+      height: 0.22em;
+      background-color: var(--terracotta-soft);
+      border-bottom: 2px solid var(--terracotta);
+      z-index: -1;
+      border-radius: 2px;
+    }
+
+    .hero-subtitle {
+      font-size: 1.15rem;
+      color: var(--ink-body);
+      max-width: 640px;
+      margin: 0 0 2.25rem;
+      line-height: 1.75;
+    }
+
+    .hero-subtitle code {
+      font-family: var(--font-mono);
+      font-size: 0.92em;
+      padding: 0.14rem 0.42rem;
+      border-radius: 6px;
+      background-color: var(--code-bg);
+      border: 1px solid var(--code-border);
+      color: var(--ink-strong);
+    }
+
+    /* AI Providers Box with Authentic Official Icons from App */
+    .providers-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.05rem;
+      padding: 1.35rem 2.35rem;
+      border-radius: 16px;
+      border: 1px solid var(--window-border);
+      background-color: var(--paper-alt-bg);
+      margin-bottom: 2.35rem;
+      max-width: 100%;
+    }
+
+    .providers-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .providers-list {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 1.85rem;
+    }
+
+    .provider-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--ink-strong);
+      font-size: 0.94rem;
+      font-weight: 600;
+      opacity: 0.9;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      user-select: none;
+    }
+
+    .provider-item:hover {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+
+    .provider-logo-img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      flex-shrink: 0;
+      display: block;
+      border-radius: 5px;
+    }
+
+    html[data-theme="dark"] .provider-logo-openai {
+      filter: invert(1) brightness(1.1);
+    }
+
+    /* Hero CTA Buttons */
+    .hero-ctas {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 3.25rem;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-family: var(--font-sans);
+      font-size: 1.04rem;
+      font-weight: 600;
+      padding: 0.85rem 1.85rem;
+      border-radius: 999px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .btn-primary {
+      background-color: var(--terracotta);
+      color: #FAF9F5;
+      border: 1px solid var(--terracotta);
+      box-shadow: 0 8px 22px rgba(217, 119, 87, 0.26);
+    }
+
+    .btn-primary:hover {
+      background-color: var(--terracotta-hover);
+      border-color: var(--terracotta-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background-color: var(--paper-alt-bg);
+      color: var(--ink-strong);
+      border: 1px solid var(--code-border);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--pill-hover-bg);
+      border-color: var(--ink-muted);
+      transform: translateY(-2px);
+    }
+
+    /* Hero Showcase Frame (Single Clean Window: macOS Header + Flush Video, No Nested Card) */
+    .hero-showcase {
+      width: 100%;
+      max-width: 880px;
+      border-radius: 16px;
+      border: 1px solid var(--window-border);
+      box-shadow: var(--shadow-elevated);
+      overflow: hidden;
+      background-color: var(--callout-bg);
+    }
+
+    .window-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.7rem 1.1rem;
+      background-color: var(--callout-bg);
+      border-bottom: 1px solid var(--window-border);
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 0.45rem;
+    }
+
+    .traffic-light {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .traffic-light.red { background-color: #E56B55; }
+    .traffic-light.yellow { background-color: #E2B354; }
+    .traffic-light.green { background-color: #63B175; }
+
+    .window-caption {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-muted);
+    }
+
+    .showcase-video {
+      width: 100%;
+      display: block;
+      margin: 0;
+      padding: 0;
+      border: none;
+      background-color: var(--paper-bg);
+    }
+
+    /* Standalone Single-Layer Interactive Preview (Separated Below Video Window) */
+    .hero-interactive-preview {
+      width: 100%;
+      max-width: 880px;
+      margin-top: 1.75rem;
+      padding: 1.5rem 1.85rem;
+      border-radius: 16px;
+      background-color: var(--paper-alt-bg);
+      border: 1px solid var(--window-border);
+      box-shadow: var(--shadow-soft);
+      text-align: left;
+    }
+
+    .preview-top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--window-border);
+    }
+
+    .preview-label {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--terracotta);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .glint-pill-demo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.24rem;
+      border-radius: 10px;
+      background-color: var(--paper-bg);
+      border: 1px solid var(--pill-border);
+    }
+
+    .pill-action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.32rem 0.72rem;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--ink-body);
+      font-family: var(--font-sans);
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .pill-action-btn:hover,
+    .pill-action-btn.is-active {
+      background-color: var(--pill-hover-bg);
+      color: var(--ink-strong);
+    }
+
+    .preview-quote-line {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--ink-strong);
+      margin: 1rem 0;
+      padding-bottom: 1rem;
+      border-bottom: 1px dashed var(--window-border);
+    }
+
+    .preview-quote-line mark {
+      background-color: rgba(217, 119, 87, 0.22);
+      color: var(--ink-strong);
+      padding: 0.08rem 0.3rem;
+      border-radius: 4px;
+    }
+
+    .preview-result-pane h4 {
+      font-family: var(--font-serif);
+      color: var(--ink-strong);
+      margin: 0 0 0.45rem;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .preview-result-pane h4::before {
+      content: "";
+      display: inline-block;
+      width: 3px;
+      height: 1em;
+      border-radius: 2px;
+      background-color: var(--terracotta);
+    }
+
+    .preview-result-pane p {
+      margin: 0;
+      font-size: 0.94rem;
+      line-height: 1.75;
+      color: var(--ink-body);
+    }
+
+    /* ==========================================================================
+       Below-the-Fold Deferred Rendering
+       ========================================================================== */
+    .below-fold-section {
+      content-visibility: auto;
+      contain-intrinsic-size: auto none auto 620px;
+      scroll-margin-top: 4.5rem;
+    }
+
+    /* ==========================================================================
+       Section 2: Why Glint (Clean, Breathable 2×2 Feature Grid)
+       ========================================================================== */
+    .why-section {
+      padding: 5.5rem 0;
+      background-color: var(--paper-alt-bg);
+      border-top: 1px solid var(--window-border);
+      border-bottom: 1px solid var(--window-border);
+    }
+
+    .section-heading {
+      font-family: var(--font-serif);
+      font-size: clamp(1.85rem, 3.5vw, 2.45rem);
+      font-weight: 700;
+      color: var(--ink-strong);
+      text-align: center;
+      margin: 0 0 0.75rem;
+      letter-spacing: -0.01em;
+    }
+
+    .section-subheading {
+      text-align: center;
+      color: var(--ink-muted);
+      font-size: 1.04rem;
+      max-width: 580px;
+      margin: 0 auto 3.25rem;
+      line-height: 1.65;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.65rem;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .feature-card {
+      background-color: var(--paper-bg);
+      border: 1px solid var(--window-border);
+      border-radius: 14px;
+      padding: 1.75rem 1.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      box-shadow: var(--shadow-soft);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--terracotta);
+      transform: translateY(-2px);
+    }
+
+    .feature-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .feature-icon-box {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background-color: var(--terracotta-soft);
+      color: var(--terracotta);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .feature-card h3 {
+      font-family: var(--font-serif);
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--ink-strong);
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-card p {
+      margin: 0;
+      color: var(--ink-body);
+      font-size: 0.98rem;
+      line-height: 1.8;
+      letter-spacing: 0.01em;
+    }
+
+    /* ==========================================================================
+       Section 3: Product Walkthrough (4 Alternating Rows, Single-Layer Visuals)
+       ========================================================================== */
+    .walkthrough-section {
+      padding: 6rem 0;
+      border-bottom: 1px solid var(--window-border);
+    }
+
+    .walkthrough-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4.5rem;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1rem 2rem;
+    }
+
+    .walkthrough-row {
+      display: flex;
+      align-items: center;
+      gap: 4rem;
+    }
+
+    .walkthrough-row.is-reverse {
+      flex-direction: row-reverse;
+    }
+
+    /* Pure layout column — NO outer card border, background, or box-shadow */
+    .walkthrough-visual {
+      flex: 1.05;
+      width: 100%;
+      max-width: 480px;
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+
+    .walkthrough-copy {
+      flex: 0.95;
+    }
+
+    .step-number-pill {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--terracotta);
+      letter-spacing: 0.06em;
+      margin-bottom: 0.55rem;
+    }
+
+    .walkthrough-copy h3 {
+      font-family: var(--font-serif);
+      font-size: 1.65rem;
+      color: var(--ink-strong);
+      margin: 0 0 0.85rem;
+      line-height: 1.3;
+    }
+
+    .walkthrough-copy p {
+      color: var(--ink-body);
+      font-size: 1.02rem;
+      line-height: 1.8;
+      margin: 0;
+    }
+
+    /* Single-Layer Clean Preview Surface for Walkthrough */
+    .mock-surface {
+      background-color: var(--paper-alt-bg);
+      border: 1px solid var(--window-border);
+      border-radius: 14px;
+      padding: 1.5rem 1.65rem;
+      box-shadow: var(--shadow-soft);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    .mock-quote-text {
+      font-family: var(--font-serif);
+      font-size: 0.98rem;
+      color: var(--ink-strong);
+      margin: 0 0 1rem;
+      line-height: 1.7;
+    }
+
+    .mock-selection-highlight {
+      background-color: rgba(217, 119, 87, 0.24);
+      padding: 0.1rem 0.3rem;
+      border-radius: 4px;
+    }
+
+    .mock-floating-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.32rem 0.55rem;
+      border-radius: 10px;
+      background-color: var(--paper-bg);
+      border: 1px solid var(--pill-border);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .mock-pill-item {
+      padding: 0.22rem 0.6rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.84rem;
+      color: var(--ink-strong);
+    }
+
+    .mock-pill-item.active {
+      background-color: var(--pill-hover-bg);
+    }
+
+    .pill-divider {
+      width: 1px;
+      height: 14px;
+      background-color: var(--window-border);
+    }
+
+    .mock-left-accent {
+      border-left: 3px solid var(--terracotta);
+      padding-left: 0.75rem;
+      margin: 0.75rem 0;
+      color: var(--ink-body);
+      font-size: 0.88rem;
+    }
+
+    .mock-footer-prompt {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 0.75rem;
+      margin-top: 0.85rem;
+      border-top: 1px solid var(--window-border);
+      color: var(--ink-muted);
+      font-size: 0.84rem;
+    }
+
+    .mock-send-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background-color: var(--terracotta);
+      color: #FAF9F5;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .mock-settings-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+      border-bottom: 1px solid var(--window-border);
+      padding-bottom: 0.6rem;
+    }
+
+    .mock-tab {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.22rem 0.65rem;
+      border-radius: 6px;
+      color: var(--ink-muted);
+    }
+
+    .mock-tab.active {
+      background-color: var(--terracotta-soft);
+      color: var(--terracotta);
+    }
+
+    .mock-form-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.45rem 0;
+      border-bottom: 1px dashed var(--window-border);
+      font-size: 0.85rem;
+    }
+
+    /* ==========================================================================
+       Section 4: Installation Guide (Direct Single-Page Smooth Scroll, Clean Cards)
+       ========================================================================== */
+    .install-guide-section {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 5.5rem 2rem 4rem;
+    }
+
+    .install-step-card {
+      background-color: var(--paper-alt-bg);
+      border: 1px solid var(--window-border);
+      border-radius: 14px;
+      padding: 1.65rem 1.9rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .install-step-title {
+      display: flex;
+      align-items: center;
+      font-family: var(--font-serif);
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--ink-strong);
+      margin: 0 0 0.65rem;
+    }
+
+    .install-step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background-color: var(--terracotta);
+      color: #FAF9F5;
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      font-weight: 700;
+      margin-right: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .install-step-desc {
+      color: var(--ink-body);
+      font-size: 0.96rem;
+      line-height: 1.78;
+      margin: 0;
+      padding-left: 2.5rem;
+    }
+
+    .install-back-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 2.25rem;
+    }
+
+    /* ==========================================================================
+       Footer
+       ========================================================================== */
+    .site-footer {
+      border-top: 1px solid var(--window-border);
+      background-color: var(--paper-alt-bg);
+      padding: 2.25rem 2rem;
+      margin-top: 2rem;
+      color: var(--ink-muted);
+      font-size: 0.9rem;
+    }
+
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      color: var(--ink-body);
+      font-weight: 500;
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 1.35rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      color: var(--ink-muted);
+      text-decoration: none;
+      transition: color 0.18s ease;
+    }
+
+    .footer-links a:hover {
+      color: var(--terracotta);
+    }
+
+    /* ==========================================================================
+       Scroll-driven entry animations (Modern Web Guidance compliant)
+       ========================================================================== */
+    @media (prefers-reduced-motion: no-preference) {
+      @supports ((animation-timeline: view()) and (animation-range: entry)) {
+        @keyframes warm-rise-in {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .feature-card,
+        .walkthrough-row,
+        .install-step-card {
+          animation: warm-rise-in auto ease-out backwards;
+          animation-timeline: view(block);
+          animation-range: entry 0% entry 32%;
+        }
+      }
+    }
+
+    /* ==========================================================================
+       Responsive Breakpoints
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .site-header {
+        padding: 0.75rem 1.25rem;
+      }
+      .hero-section {
+        padding: 6.75rem 1.25rem 3rem;
+      }
+      .providers-box {
+        padding: 1.15rem 1.15rem;
+      }
+      .providers-list {
+        gap: 1.15rem;
+      }
+      .feature-grid {
+        grid-template-columns: 1fr;
+        padding: 0 1.25rem;
+      }
+      .walkthrough-list {
+        gap: 2.75rem;
+        padding: 0 1.25rem;
+      }
+      .walkthrough-row,
+      .walkthrough-row.is-reverse {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .walkthrough-visual {
+        max-width: 100%;
+      }
+      .install-guide-section {
+        padding: 4rem 1.25rem 2.5rem;
+      }
+      .install-step-desc {
+        padding-left: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== Top Fixed Minimalist Header ==================== -->
+  <header class="site-header">
+    <a href="#top" class="brand-link" aria-label="Glint Home">
+      <img src="images/logo.svg" alt="Glint Logo" class="brand-logo" width="32" height="32" />
+      <span class="brand-name">Glint</span>
+    </a>
+
+    <div class="header-actions">
+      <!-- 1. Language Switcher (Frameless 文A Icon) -->
+      <button type="button" class="header-bare-action" id="lang-toggle-btn" title="Switch Language (中 / EN)" aria-label="Switch Language">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m5 8 6 6"/>
+          <path d="m4 14 6-6 2-3"/>
+          <path d="M2 5h12"/>
+          <path d="M7 2h1"/>
+          <path d="m22 22-5-10-5 10"/>
+          <path d="M14 18h6"/>
+        </svg>
+      </button>
+
+      <!-- 2. Dark / Warm Theme Toggle (Frameless Moon / Sun Icon) -->
+      <button type="button" class="header-bare-action" id="theme-toggle-btn" title="切换暖纸 / 暖夜主题 (Toggle Theme)" aria-label="Toggle Theme">
+        <svg class="theme-icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>
+        </svg>
+        <svg class="theme-icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+        </svg>
+      </button>
+
+      <!-- 3. GitHub Link (Frameless Outline Icon + Text) -->
+      <a href="https://github.com/nanzhi84/Glint/releases" target="_blank" rel="noopener noreferrer" class="header-bare-action">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/>
+          <path d="M9 18c-4.51 2-5-2-7-2"/>
+        </svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ==================== 1. Hero Section ==================== -->
+    <section class="hero-section">
+      <div class="hero-eyebrow">
+        <span class="sparkle" aria-hidden="true">✦</span>
+        <span data-lang="zh">纯原生 Swift &amp; AppKit 打造 · 划词即译 · 划词即解 · 截图即解</span>
+        <span data-lang="en">Crafted natively with Swift &amp; AppKit · Translate · Explain · Vision</span>
+      </div>
+
+      <h1 class="hero-title">
+        <span data-lang="zh">选中文本，<span class="accent-underline">AI 即刻响应。</span></span>
+        <span data-lang="en">Select Text. <span class="accent-underline">AI Responds Instantly.</span></span>
+      </h1>
+
+      <p class="hero-subtitle">
+        <span data-lang="zh">
+          划词优先的原生 macOS 桌面 AI 助手。翻译、深度解释、多轮追问、<code>⌃⌥E</code> 截图讲解一次完成 —— 不用切换窗口，不打断阅读心流。
+        </span>
+        <span data-lang="en">
+          A selection-first native macOS AI assistant. Instant translation, deep explanation, follow-up dialogue, and <code>⌃⌥E</code> screenshot vision — without switching windows or breaking your reading flow.
+        </span>
+      </p>
+
+      <!-- AI Providers Box with Authentic Official Icons from App -->
+      <div class="providers-box">
+        <span class="providers-label">
+          <span data-lang="zh">接入主流 AI 服务商</span>
+          <span data-lang="en">Works with leading AI providers</span>
+        </span>
+        <div class="providers-list">
+          <span class="provider-item" title="DeepSeek">
+            <img class="provider-logo-img" src="data:image/png;base64,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" alt="DeepSeek" width="24" height="24" />
+            <span>DeepSeek</span>
+          </span>
+          <span class="provider-item" title="Google Gemini">
+            <img class="provider-logo-img" src="data:image/png;base64,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" alt="Gemini" width="24" height="24" />
+            <span>Gemini</span>
+          </span>
+          <span class="provider-item" title="Google Cloud Vertex AI">
+            <img class="provider-logo-img" src="data:image/png;base64,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" alt="Vertex AI" width="24" height="24" />
+            <span>Vertex AI</span>
+          </span>
+          <span class="provider-item" title="Xiaomi MiMo">
+            <img class="provider-logo-img" src="data:image/png;base64,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" alt="MiMo" width="24" height="24" />
+            <span>MiMo</span>
+          </span>
+          <span class="provider-item" title="Anthropic Claude">
+            <img class="provider-logo-img" src="data:image/png;base64,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" alt="Anthropic Claude" width="24" height="24" />
+            <span>Claude</span>
+          </span>
+          <span class="provider-item" title="OpenAI">
+            <img class="provider-logo-img provider-logo-openai" src="data:image/png;base64,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" alt="OpenAI" width="24" height="24" />
+            <span>OpenAI</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Primary CTA Buttons -->
+      <div class="hero-ctas">
+        <a href="https://github.com/nanzhi84/Glint/releases" target="_blank" rel="noopener noreferrer" class="btn-primary">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/>
+            <path d="M9 18c-4.51 2-5-2-7-2"/>
+          </svg>
+          <span data-lang="zh">在 GitHub 查看与下载</span>
+          <span data-lang="en">View on GitHub &amp; Download</span>
+        </a>
+
+        <a href="#install-guide" class="btn-secondary">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 7v14"/>
+            <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>
+          </svg>
+          <span data-lang="zh">安装引导</span>
+          <span data-lang="en">Installation Guide</span>
+        </a>
+      </div>
+
+      <!-- Product Demo Video (Single Window Header + Flush Video, No Nested Card) -->
+      <div class="hero-showcase">
+        <div class="window-titlebar">
+          <div class="traffic-lights" aria-hidden="true">
+            <span class="traffic-light red"></span>
+            <span class="traffic-light yellow"></span>
+            <span class="traffic-light green"></span>
+          </div>
+          <span class="window-caption">Glint — 划词翻译 · 划词解释 · ⌃⌥E 截图讲解</span>
+          <span style="width: 42px;"></span>
+        </div>
+
+        <video
+          class="showcase-video"
+          src="images/demo.mp4"
+          poster="images/demo.gif"
+          autoplay
+          loop
+          muted
+          playsinline
+          controls
+        >
+          <img src="images/demo.gif" alt="Glint 演示：划词翻译、划词解释、⌃⌥E 截图讲解" />
+        </video>
+      </div>
+
+      <!-- Standalone Single-Layer Interactive Preview (Separated from Video Window) -->
+      <div class="hero-interactive-preview">
+        <div class="preview-top-bar">
+          <span class="preview-label">
+            <span>✦</span>
+            <span data-lang="zh">交互预览：点击右侧悬浮胶囊，体验温暖书卷风排版</span>
+            <span data-lang="en">Interactive Preview: Click the floating pill to toggle Explain &amp; Translate</span>
+          </span>
+
+          <div class="glint-pill-demo" role="group" aria-label="Glint Floating Pill">
+            <button type="button" class="pill-action-btn is-active" id="demo-btn-explain">
+              <span style="color: var(--terracotta);">✦</span>
+              <span data-lang="zh">解释</span>
+              <span data-lang="en">Explain</span>
+            </button>
+            <span class="pill-divider" aria-hidden="true"></span>
+            <button type="button" class="pill-action-btn" id="demo-btn-translate">
+              <span>🌐</span>
+              <span data-lang="zh">翻译</span>
+              <span data-lang="en">Translate</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="preview-quote-line">
+          “<mark>Structured concurrency</mark> binds the lifetime of concurrent tasks to a lexical scope, preventing task leaks and propagating cancellation automatically.”
+        </p>
+
+        <div class="preview-result-pane" id="demo-output-explain">
+          <h4>
+            <span data-lang="zh">核心概念拆解：结构化并发 (Structured Concurrency)</span>
+            <span data-lang="en">Concept Breakdown: Structured Concurrency</span>
+          </h4>
+          <p data-lang="zh">
+            <strong>通俗理解：</strong>就像函数作用域严格管理局部变量一样，<strong>结构化并发</strong>要求所有派生出的异步子任务都在当前代码块内闭合完成，天然杜绝后台任务泄漏并自动向下传播取消信号。
+          </p>
+          <p data-lang="en">
+            <strong>In plain words:</strong> Just as lexical scope cleanly bounds local variables, <strong>structured concurrency</strong> ensures derived child tasks finish within their enclosing scope—preventing silent task leaks and propagating cancellation safely.
+          </p>
+        </div>
+
+        <div class="preview-result-pane" id="demo-output-translate" style="display: none;">
+          <h4>
+            <span data-lang="zh">精准直译（目标语言：简体中文）</span>
+            <span data-lang="en">Direct Translation (Target: Simplified Chinese)</span>
+          </h4>
+          <p>
+            「结构化并发」将并发任务的生命周期绑定至词法作用域，从而防止任务泄漏并自动传播取消信号。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 2. Why Glint Section (Concise 2x2 Cards) ==================== -->
+    <section id="why-glint" class="why-section below-fold-section">
+      <h2 class="section-heading">
+        <span data-lang="zh">为什么选择 Glint？</span>
+        <span data-lang="en">Why Glint</span>
+      </h2>
+      <p class="section-subheading">
+        <span data-lang="zh">克制、原生、专注阅读心流 —— 为深度阅读者打造的桌面随行智能层。</span>
+        <span data-lang="en">Restrained, native, and built for reading flow — a thoughtful desktop intelligence layer.</span>
+      </p>
+
+      <div class="feature-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
+              </svg>
+            </div>
+            <h3>
+              <span data-lang="zh">划词即触发</span>
+              <span data-lang="en">Selection-First</span>
+            </h3>
+          </div>
+          <p>
+            <span data-lang="zh">在任意应用中选中文本，光标旁即刻浮现「翻译 | 解释」气泡，无需复制或切换窗口，不打断当前阅读。</span>
+            <span data-lang="en">Select text anywhere on macOS and a floating bubble appears right beside your cursor—no copying, no switching apps.</span>
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <h3>
+              <span data-lang="zh">翻译 + 解释双层 AI</span>
+              <span data-lang="en">Translate &amp; Deep Explain</span>
+            </h3>
+          </div>
+          <p>
+            <span data-lang="zh">秒级直译快速扫清外文障碍；独立解释浮窗支持书卷风排版、多轮追问与 <code>⌃⌥E</code> 截图讲解。</span>
+            <span data-lang="en">Fast translation clears reading barriers, while the explanation window supports bookish formatting, follow-up chat, and <code>⌃⌥E</code> vision.</span>
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <h3>
+              <span data-lang="zh">自带 API Key 直连</span>
+              <span data-lang="en">Flexible BYOK Stack</span>
+            </h3>
+          </div>
+          <p>
+            <span data-lang="zh">内置主流服务商预设，支持自带个人 API Key 本机直连，无云端中转，隐私完全掌控。</span>
+            <span data-lang="en">Built-in presets for leading providers with direct personal API Key connections—no middle servers, full privacy.</span>
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-card-header">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+            </div>
+            <h3>
+              <span data-lang="zh">桌面原生体验</span>
+              <span data-lang="en">Mac-Native &amp; Warm Paper</span>
+            </h3>
+          </div>
+          <p>
+            <span data-lang="zh">基于 Swift 与 AppKit 原生打造，轻盈丝滑；柔和护眼的暖米白纸感界面，让长文精读久看不累。</span>
+            <span data-lang="en">Built natively with Swift and AppKit for instant response, paired with a soothing warm paper aesthetic gentle on your eyes.</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 3. Product Walkthrough Section (Single-Layer Cards) ==================== -->
+    <section id="walkthrough" class="walkthrough-section below-fold-section">
+      <h2 class="section-heading">
+        <span data-lang="zh">产品演示</span>
+        <span data-lang="en">Product Walkthrough</span>
+      </h2>
+      <p class="section-subheading">
+        <span data-lang="zh">从一次选中文本或按下快捷键开始，智能交互在视线边缘自然展开。</span>
+        <span data-lang="en">From a single text selection or shortcut, understanding unfolds effortlessly beside your work.</span>
+      </p>
+
+      <div class="walkthrough-list">
+        <!-- Walkthrough 1: Global Selection Bubble -->
+        <div class="walkthrough-row">
+          <div class="walkthrough-visual">
+            <div class="mock-surface">
+              <p class="mock-quote-text">
+                “Reading is a conversation; <span class="mock-selection-highlight">every margin note sparks a deeper question</span>.”
+              </p>
+              <div class="mock-floating-pill">
+                <span class="mock-pill-item">🌐 翻译</span>
+                <span class="pill-divider"></span>
+                <span class="mock-pill-item active"><span style="color: var(--terracotta);">✦</span> 解释</span>
+              </div>
+            </div>
+          </div>
+          <div class="walkthrough-copy">
+            <span class="step-number-pill">01 · SELECTION BUBBLE</span>
+            <h3>
+              <span data-lang="zh">全局划词气泡</span>
+              <span data-lang="en">Global Selection Bubble</span>
+            </h3>
+            <p>
+              <span data-lang="zh">
+                在任意网页、文档或阅读器中选中文本，光标旁自动唤出「翻译 | 解释」轻巧气泡，即选即用，视线从不离场。
+              </span>
+              <span data-lang="en">
+                Select text anywhere on macOS and a floating toolbar appears right where your cursor is — ready to translate or explain on the spot.
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Walkthrough 2: Bookish Deep Explanation & Multi-Turn Chat -->
+        <div class="walkthrough-row is-reverse">
+          <div class="walkthrough-visual">
+            <div class="mock-surface">
+              <div style="font-family: var(--font-serif); font-weight: 700; color: var(--ink-strong); margin-bottom: 0.45rem;">
+                一句话抓本质：结构化阅读与沉浸思考
+              </div>
+              <div class="mock-left-accent">
+                💡 就像随身带着一位学者，在难懂段落旁轻声点拨，却从不抢占整张书桌。
+              </div>
+              <div class="mock-footer-prompt">
+                <span>继续追问细节… (Enter 发送)</span>
+                <span class="mock-send-dot">↑</span>
+              </div>
+            </div>
+          </div>
+          <div class="walkthrough-copy">
+            <span class="step-number-pill">02 · DEEP EXPLANATION &amp; CHAT</span>
+            <h3>
+              <span data-lang="zh">AI 解释与多轮对话</span>
+              <span data-lang="en">AI Explain &amp; Follow-Up Chat</span>
+            </h3>
+            <p>
+              <span data-lang="zh">
+                基于选中文本生成清晰的 Markdown 书卷风解析，支持在同一浮窗底部继续多轮追问，把复杂概念层层讲透。
+              </span>
+              <span data-lang="en">
+                Get structured Markdown explanations for selected text and continue with multi-turn follow-up questions in the very same window.
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Walkthrough 3: ⌃⌥E Screenshot Vision -->
+        <div class="walkthrough-row">
+          <div class="walkthrough-visual">
+            <div class="mock-surface" style="border-style: dashed; border-color: var(--terracotta);">
+              <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--terracotta); font-weight: 600; margin-bottom: 0.45rem;">
+                ⌃⌥E · 框选屏幕区域看图
+              </div>
+              <div style="font-family: var(--font-serif); font-weight: 700; color: var(--ink-strong); margin-bottom: 0.35rem;">
+                画面核心解读：多视角扩散架构图
+              </div>
+              <div style="font-size: 0.86rem; color: var(--ink-body);">
+                ✦ 已为您拆解图中三阶段流水线与关键指标，可继续在下方追问细节。
+              </div>
+            </div>
+          </div>
+          <div class="walkthrough-copy">
+            <span class="step-number-pill">03 · SCREENSHOT VISION (⌃⌥E)</span>
+            <h3>
+              <span data-lang="zh">⌃⌥E 框选看图讲解</span>
+              <span data-lang="en">⌃⌥E Screenshot Vision</span>
+            </h3>
+            <p>
+              <span data-lang="zh">
+                遇到无法选中的报错弹窗、架构图或论文公式？按下 <code>⌃⌥E</code> 框选任意区域，多模态模型即刻看图精讲。
+              </span>
+              <span data-lang="en">
+                Press <code>⌃⌥E</code> to drag-select any screen region. Multimodal models unpack architecture diagrams, error popups, or formulas immediately.
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Walkthrough 4: Providers & Language Preferences -->
+        <div class="walkthrough-row is-reverse">
+          <div class="walkthrough-visual">
+            <div class="mock-surface">
+              <div class="mock-settings-tabs">
+                <span class="mock-tab">基础</span>
+                <span class="mock-tab active">服务商</span>
+                <span class="mock-tab">语言</span>
+                <span class="mock-tab">权限</span>
+              </div>
+              <div class="mock-form-row">
+                <span style="color: var(--ink-muted);">内置服务商</span>
+                <strong style="color: var(--ink-strong);">DeepSeek / Gemini / Vertex AI / MiMo</strong>
+              </div>
+              <div class="mock-form-row" style="border-bottom: none;">
+                <span style="color: var(--ink-muted);">目标回答语言</span>
+                <strong style="color: var(--ink-strong);">简体中文等 11 种语言 &amp; 自定义提示词</strong>
+              </div>
+            </div>
+          </div>
+          <div class="walkthrough-copy">
+            <span class="step-number-pill">04 · PROVIDERS &amp; LANGUAGES</span>
+            <h3>
+              <span data-lang="zh">多服务商与语言偏好</span>
+              <span data-lang="en">Providers &amp; Language Preferences</span>
+            </h3>
+            <p>
+              <span data-lang="zh">
+                自由切换主流服务商预设或接入自定义接口，支持 11 种目标回答语言与提示词风格定制，贴合个人阅读习惯。
+              </span>
+              <span data-lang="en">
+                Switch effortlessly between built-in AI providers or custom endpoints, with 11 target languages and customizable prompt templates.
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 4. Installation Guide Section (Direct Scroll) ==================== -->
+    <section id="install-guide" class="install-guide-section below-fold-section">
+      <h2 class="section-heading">
+        <span data-lang="zh">安装引导</span>
+        <span data-lang="en">Installation Guide</span>
+      </h2>
+      <p class="section-subheading">
+        <span data-lang="zh">
+          由于 Glint 未通过 Mac App Store 分发，首次打开可能会触发系统安全提示。只需简单三步即可正常启用。
+        </span>
+        <span data-lang="en">
+          Since Glint is distributed outside the Mac App Store, macOS may show a security prompt on first launch. Follow three simple steps to open it safely.
+        </span>
+      </p>
+
+      <!-- Step 1 -->
+      <div class="install-step-card">
+        <h3 class="install-step-title">
+          <span class="install-step-num">1</span>
+          <span data-lang="zh">第一步：遇到安全提示</span>
+          <span data-lang="en">Step 1: See the Security Warning</span>
+        </h3>
+        <p class="install-step-desc">
+          <span data-lang="zh">
+            下载 <code>Glint.dmg</code> 并拖入「应用程序」。首次打开若提示「无法验证开发者」，先点击「完成」，或在访达中右键点击图标选择「打开」。
+          </span>
+          <span data-lang="en">
+            Drag Glint into Applications. When macOS displays a "can't verify the developer" warning on first launch, click "Done" or right-click the app icon and choose "Open".
+          </span>
+        </p>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="install-step-card">
+        <h3 class="install-step-title">
+          <span class="install-step-num">2</span>
+          <span data-lang="zh">第二步：在「隐私与安全性」中点击「仍要打开」</span>
+          <span data-lang="en">Step 2: Click "Open Anyway" in Privacy &amp; Security</span>
+        </h3>
+        <p class="install-step-desc">
+          <span data-lang="zh">
+            前往 <strong>系统设置 → 隐私与安全性</strong>，向下滑动至「安全性」区域，点击 Glint 提示旁的<strong>「仍要打开」</strong>并在弹出框中确认即可（仅首次需要）。
+          </span>
+          <span data-lang="en">
+            Go to <strong>System Settings → Privacy &amp; Security</strong>, scroll down to Security, click <strong>"Open Anyway"</strong> next to Glint, and confirm once.
+          </span>
+        </p>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="install-step-card">
+        <h3 class="install-step-title">
+          <span class="install-step-num">3</span>
+          <span data-lang="zh">第三步：开启「辅助功能」与「屏幕录制」权限</span>
+          <span data-lang="en">Step 3: Grant Permissions &amp; Enter API Key</span>
+        </h3>
+        <p class="install-step-desc">
+          <span data-lang="zh">
+            点击菜单栏 <strong>Glint 图标 →「设置…」</strong>，在「权限」页开启<strong>「辅助功能」</strong>与<strong>「屏幕录制」</strong>，并在「服务商」页填入 API Key 保存即可。
+          </span>
+          <span data-lang="en">
+            Click the menu bar <strong>Glint icon → Settings…</strong>, enable <strong>Accessibility</strong> and <strong>Screen Recording</strong> under Permissions, and save your API Key under Providers.
+          </span>
+        </p>
+      </div>
+
+      <div class="install-back-wrap">
+        <a href="#top" class="btn-secondary">
+          <span>↑</span>
+          <span data-lang="zh">返回顶部</span>
+          <span data-lang="en">Back to Top</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== Footer ==================== -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <img src="images/logo.svg" alt="Glint" width="22" height="22" style="border-radius: 5px;" />
+        <span>© 2026 Glint · Released under the MIT License</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/nanzhi84/Glint" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/nanzhi84/Glint/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="#install-guide">
+          <span data-lang="zh">安装引导</span>
+          <span data-lang="en">Installation Guide</span>
+        </a>
+        <a href="https://github.com/nanzhi84" target="_blank" rel="noopener noreferrer">nanzhi ↗</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== Lightweight Client Script ==================== -->
+  <script>
+    (function () {
+      const htmlEl = document.documentElement;
+      const langBtn = document.getElementById('lang-toggle-btn');
+      const themeBtn = document.getElementById('theme-toggle-btn');
+
+      // 1. Theme initialization & toggle (Warm Paper default)
+      const savedTheme = localStorage.getItem('glint-theme');
+      const initialTheme = (savedTheme === 'dark' || savedTheme === 'light') ? savedTheme : 'light';
+      function applyTheme(theme) {
+        htmlEl.setAttribute('data-theme', theme);
+      }
+      applyTheme(initialTheme);
+
+      themeBtn.addEventListener('click', function () {
+        const nextTheme = htmlEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('glint-theme', nextTheme);
+        applyTheme(nextTheme);
+      });
+
+      // 2. Bilingual i18n initialization & toggle (zh-CN default)
+      const savedLang = localStorage.getItem('glint-lang');
+      function applyLang(lang) {
+        htmlEl.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
+        document.title = lang === 'en'
+          ? 'Glint — Select to Translate & Explain | Native macOS AI Assistant'
+          : 'Glint — 划词即译 · 划词即解 · 截图即解 | 原生 macOS 桌面 AI 助手';
+      }
+      if (savedLang === 'en' || savedLang === 'zh') {
+        applyLang(savedLang);
+      }
+
+      langBtn.addEventListener('click', function () {
+        const currentIsEn = htmlEl.getAttribute('lang').indexOf('en') === 0;
+        const nextLang = currentIsEn ? 'zh' : 'en';
+        localStorage.setItem('glint-lang', nextLang);
+        applyLang(nextLang);
+      });
+
+      // 3. Standalone Interactive Floating Pill Preview
+      const btnExplain = document.getElementById('demo-btn-explain');
+      const btnTranslate = document.getElementById('demo-btn-translate');
+      const outExplain = document.getElementById('demo-output-explain');
+      const outTranslate = document.getElementById('demo-output-translate');
+
+      btnExplain.addEventListener('click', function () {
+        btnExplain.classList.add('is-active');
+        btnTranslate.classList.remove('is-active');
+        outExplain.style.display = 'block';
+        outTranslate.style.display = 'none';
+      });
+
+      btnTranslate.addEventListener('click', function () {
+        btnTranslate.classList.add('is-active');
+        btnExplain.classList.remove('is-active');
+        outTranslate.style.display = 'block';
+        outExplain.style.display = 'none';
+      });
+    })();
+  </script>
+</body>
+</html>
