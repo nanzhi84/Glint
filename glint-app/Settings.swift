@@ -154,7 +154,7 @@ final class PrefTabButton: NSControl {
     }
 }
 
-final class SettingsController: NSObject {
+final class SettingsController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var tabButtons: [PrefTabButton] = []
     private var tabViews: [NSView] = []
@@ -242,6 +242,10 @@ final class SettingsController: NSObject {
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "偏好设置"
         win.isReleasedWhenClosed = false
+        win.hidesOnDeactivate = false
+        win.level = .floating
+        win.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        win.delegate = self
 
         let b0 = PrefTabButton(index: 0, symbol: "gearshape", title: "基础", target: self, action: #selector(onTabClicked(_:)))
         let b1 = PrefTabButton(index: 1, symbol: "checkmark.shield", title: "权限", target: self, action: #selector(onTabClicked(_:)))
@@ -632,6 +636,10 @@ final class SettingsController: NSObject {
         r.spacing = 10
         r.alignment = .top
         return r
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshPermissions()
     }
 
     // MARK: - 权限与概览状态刷新

@@ -1945,6 +1945,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.popup.runDemoClaudeUI()
                 } else if mode == "settings" {
                     self.settings.show(tab: 0)
+                    let win = self.settings.windowObject
+                    let isFloating = (win?.level == .floating)
+                    let hidesOnDeact = (win?.hidesOnDeactivate ?? true)
+                    let releasedWhenClosed = (win?.isReleasedWhenClosed ?? true)
+                    logLine("UITEST settings window floating=\(isFloating) hidesOnDeactivate=\(hidesOnDeact) isReleasedWhenClosed=\(releasedWhenClosed)")
+                    if !(isFloating && !hidesOnDeact && !releasedWhenClosed) {
+                        exit(1)
+                    }
                     logLine("UITEST settings tab=0 (基础) frame=\(self.settings.windowObject?.frame ?? .zero)")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         self.settings.selectTab(1)
