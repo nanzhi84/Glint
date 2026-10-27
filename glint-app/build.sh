@@ -16,8 +16,6 @@ if [ -n "$1" ]; then
     SIGN_IDENTITY="$1"
 elif security find-identity -p codesigning 2>/dev/null | grep -q "Glint Self Signed"; then
     SIGN_IDENTITY="Glint Self Signed"
-elif security find-identity -p codesigning 2>/dev/null | grep -q "PopDict Self Signed"; then
-    SIGN_IDENTITY="PopDict Self Signed"
 else
     SIGN_IDENTITY="-"
 fi
@@ -42,7 +40,7 @@ iconutil -c icns "$ICONSET_TMP" -o "$HERE/Glint.icns"
 rm -rf "$(dirname "$ICONSET_TMP")" "$(dirname "$ICON_GEN_SRC")" /tmp/glint_icongen
 
 echo "==> 2/5 组装 $APP"
-rm -rf "$APP" popdict.app popdict.icns popdict.dmg
+rm -rf "$APP" Glint.dmg
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp /tmp/glint_uni "$APP/Contents/MacOS/Glint"
 chmod +x "$APP/Contents/MacOS/Glint"

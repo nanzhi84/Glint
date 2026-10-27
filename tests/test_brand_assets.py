@@ -36,7 +36,7 @@ class TestBrandLogo(unittest.TestCase):
         )
 
     def test_icns_file_has_valid_magic_header_and_bundle_plist_entry(self) -> None:
-        icns_path = REPO_ROOT / "popdict-app" / "Glint.icns"
+        icns_path = REPO_ROOT / "glint-app" / "Glint.icns"
         self.assertTrue(icns_path.is_file(), f"Missing app icon file: {icns_path}")
 
         icns_bytes = icns_path.read_bytes()
@@ -53,7 +53,7 @@ class TestBrandLogo(unittest.TestCase):
 
         bundle_icns_path = (
             REPO_ROOT
-            / "popdict-app"
+            / "glint-app"
             / "Glint.app"
             / "Contents"
             / "Resources"
@@ -66,7 +66,7 @@ class TestBrandLogo(unittest.TestCase):
         self.assertEqual(bundle_icns_path.read_bytes()[:4], b"icns")
 
         plist_path = (
-            REPO_ROOT / "popdict-app" / "Glint.app" / "Contents" / "Info.plist"
+            REPO_ROOT / "glint-app" / "Glint.app" / "Contents" / "Info.plist"
         )
         self.assertTrue(plist_path.is_file(), f"Missing Info.plist: {plist_path}")
         plist_text = plist_path.read_text(encoding="utf-8")
@@ -78,7 +78,7 @@ class TestBrandLogo(unittest.TestCase):
     def test_brand_logo_module_renders_template_menubar_icon_and_app_icon_png(
         self,
     ) -> None:
-        brand_logo_swift = REPO_ROOT / "popdict-app" / "BrandLogo.swift"
+        brand_logo_swift = REPO_ROOT / "glint-app" / "BrandLogo.swift"
         self.assertTrue(
             brand_logo_swift.is_file(),
             f"Missing Swift brand logo module: {brand_logo_swift}",
@@ -252,6 +252,65 @@ class TestReadmePortal(unittest.TestCase):
             "⌃⌥E",
             content,
             "README.md must document the screenshot explain shortcut ⌃⌥E",
+        )
+
+    def test_repository_tree_excludes_legacy_paths_and_text_references(self) -> None:
+        legacy_token = "pop" + "dict"
+        app_dir = REPO_ROOT / "glint-app"
+        self.assertTrue(app_dir.is_dir(), f"Expected glint-app directory at {app_dir}")
+
+        forbidden_paths = [
+            REPO_ROOT / f"{legacy_token}-app",
+            REPO_ROOT / f"{legacy_token}.lua",
+            REPO_ROOT / "DeepSeek-Translate.popclipext",
+            REPO_ROOT / "docs" / "superpowers",
+        ]
+        for path in forbidden_paths:
+            self.assertFalse(
+                path.exists(),
+                f"Legacy path must not exist in repository: {path.relative_to(REPO_ROOT)}",
+            )
+
+        excluded_top_dirs = {".git", "work", "artifacts", "build", "__pycache__"}
+        binary_suffixes = {
+            ".icns",
+            ".mp4",
+            ".gif",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".dmg",
+            ".pyc",
+            ".DS_Store",
+        }
+
+        offending_files: list[str] = []
+        for file_path in sorted(REPO_ROOT.rglob("*")):
+            rel_parts = file_path.relative_to(REPO_ROOT).parts
+            if any(
+                part in excluded_top_dirs
+                or part == "__pycache__"
+                or part.endswith(".app")
+                or part.endswith(".iconset")
+                for part in rel_parts
+            ):
+                continue
+            if not file_path.is_file():
+                continue
+            if file_path.name == ".DS_Store" or file_path.suffix.lower() in binary_suffixes:
+                continue
+            try:
+                text = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if legacy_token in text.lower():
+                offending_files.append(str(file_path.relative_to(REPO_ROOT)))
+
+        self.assertEqual(
+            offending_files,
+            [],
+            f"Found forbidden '{legacy_token}' references in files: {offending_files}",
         )
 
 

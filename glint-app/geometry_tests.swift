@@ -1,7 +1,7 @@
 import AppKit
 
 // Geometry.swift 的单测(不进 App 打包;跑法:
-//   swiftc -o /tmp/popdict_geo_test Geometry.swift geometry_tests.swift -framework AppKit && /tmp/popdict_geo_test)
+//   swiftc -o /tmp/glint_geo_test Geometry.swift geometry_tests.swift -framework AppKit && /tmp/glint_geo_test)
 
 @main
 struct GeoTests {

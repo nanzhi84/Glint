@@ -4,7 +4,7 @@ import Foundation
 
 // ============================================================
 // Experiment: Cursor Bottom-Right Placement vs Legacy Placement
-// 1. 解析 ~/.config/popdict/popdict.log 真实划词日志统计 AX 异常与偏移
+// 1. 解析 ~/.config/glint/glint.log 真实划词日志统计 AX 异常与偏移
 // 2. 验证本机双屏 (Retina 主屏 + 左侧外接屏) 坐标转换与 NSPanel minSize 行为
 // 3. 对比 Legacy (rectBesideSelection / rectNearPoint) 与 CursorBottomRight 落点误差
 // ============================================================
@@ -80,7 +80,7 @@ let btnW: CGFloat = 149
 let btnH: CGFloat = 32
 
 let scenarios: [Scenario] = [
-    // 场景 1: PDF.js 双栏论文 15 行整段划词 (取自 popdict.log 15:09:23 真实坐标)
+    // 场景 1: PDF.js 双栏论文 15 行整段划词 (取自 glint.log 15:09:23 真实坐标)
     Scenario(
         name: "PDF.js 15行整段正向划词 (log 15:09:23)",
         downQuartz: CGPoint(x: 420, y: 360),
@@ -89,7 +89,7 @@ let scenarios: [Scenario] = [
         visibleAK: vfMain,
         primaryH: primaryH
     ),
-    // 场景 2: 网页列表项前缀短划词 "2. "，AX 却返回整行宽 1422 (取自 popdict.log 15:00:02)
+    // 场景 2: 网页列表项前缀短划词 "2. "，AX 却返回整行宽 1422 (取自 glint.log 15:00:02)
     Scenario(
         name: "网页列表项短划词 '2. ' (log 15:00:02)",
         downQuartz: CGPoint(x: 780, y: 690),
@@ -98,7 +98,7 @@ let scenarios: [Scenario] = [
         visibleAK: vfMain,
         primaryH: primaryH
     ),
-    // 场景 3: 网页 7 行长段划词 (取自 popdict.log 15:01:57 PDF.js 介绍段落)
+    // 场景 3: 网页 7 行长段划词 (取自 glint.log 15:01:57 PDF.js 介绍段落)
     Scenario(
         name: "网页 7行段落划词 (log 15:01:57)",
         downQuartz: CGPoint(x: 520, y: 345),
@@ -116,7 +116,7 @@ let scenarios: [Scenario] = [
         visibleAK: vfMain,
         primaryH: primaryH
     ),
-    // 场景 5: 终端 / Claude Code 无 AX bounds (取自 popdict.log 15:03:15 Cmd+C 路径)
+    // 场景 5: 终端 / Claude Code 无 AX bounds (取自 glint.log 15:03:15 Cmd+C 路径)
     Scenario(
         name: "终端/Claude Code 无 AX 划词 (log 15:03:15)",
         downQuartz: CGPoint(x: 300, y: 600),
@@ -203,8 +203,8 @@ print("  expandedRect.midX = \(expandedRect.midX)")
 print("  Legacy screenFor(expandedRect) 选中屏幕: \(legacyPickedScreen) (错误跳到主屏 ❌)")
 print("  Fixed  screenFor(point: anchor) 选中屏幕: \(fixedPickedScreen) (保持在当前屏 ✅)")
 
-// --- 6. 解析 ~/.config/popdict/popdict.log 统计真实划词情况 ---
-let logPath = ("~/.config/popdict/popdict.log" as NSString).expandingTildeInPath
+// --- 6. 解析 ~/.config/glint/glint.log 统计真实划词情况 ---
+let logPath = ("~/.config/glint/glint.log" as NSString).expandingTildeInPath
 if let data = try? Data(contentsOf: URL(fileURLWithPath: logPath)),
    let content = String(data: data.suffix(250_000), encoding: .utf8) {
     let lines = content.components(separatedBy: "\n")
@@ -220,7 +220,7 @@ if let data = try? Data(contentsOf: URL(fileURLWithPath: logPath)),
         if l.contains("AX=") && l.contains("bounds=nil") { nilBoundsCount += 1 }
         else if l.contains("AX=") && l.contains("bounds=") { axCount += 1 }
     }
-    print("\n=== Experiment 4: ~/.config/popdict/popdict.log 尾部 250KB 真实划词统计 ===")
+    print("\n=== Experiment 4: ~/.config/glint/glint.log 尾部 250KB 真实划词统计 ===")
     print("  AX 返回非空 bounds 次数: \(axCount) (其中 m1 返回空矩形回退 m2/m3: \(m1ZeroErrCount) 次, 落入 m3 整元素 frame: \(m3UsedCount) 次, 被判 implausible: \(implausibleCount) 次)")
     print("  AX 返回 bounds=nil (走 Cmd+C / 终端等): \(nilBoundsCount) 次")
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 // Config.swift 多协议与多厂商适配层的黑盒单测（不进 App 打包；跑法：
-//   swiftc -o /tmp/popdict_prov_test Config.swift provider_tests.swift -framework Foundation && /tmp/popdict_prov_test）
+//   swiftc -o /tmp/glint_prov_test Config.swift provider_tests.swift -framework Foundation && /tmp/glint_prov_test）
 
 @main
 struct ProviderTests {

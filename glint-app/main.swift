@@ -866,7 +866,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var assistantAccum = ""
     private var turnStartLoc = 0                                 // 本轮(含追问气泡)在 transcript 的起点,失败可整轮回滚
     private var generation = 0                                   // 递增令牌:关闭/新划词时 +1,作废在途的非流式回调(翻译)
-    private var uiTestMode = false                               // POPDICT_UITEST:自测模式(程序化驱动 + 截图 + 长高日志)
+    private var uiTestMode = false                               // GLINT_UITEST:自测模式(程序化驱动 + 截图 + 长高日志)
     private let convoFont = NSFont.systemFont(ofSize: 14.5)
     private let convoW: CGFloat = 500
     private let convoPad: CGFloat = 24                           // 左右内边距 24px,增加阅读呼吸感
@@ -1067,7 +1067,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         beginConversation(firstUserText: text)
     }
 
-    // UI 自测入口(仅 POPDICT_UITEST 时调用):程序化冒按钮 → 解释 → 追问,验证整链路 + 截图 + 长高日志。
+    // UI 自测入口(仅 GLINT_UITEST 时调用):程序化冒按钮 → 解释 → 追问,验证整链路 + 截图 + 长高日志。
     func runDemoExplain() {
         uiTestMode = true
         let q = "用中文详细解释 Python 的装饰器(decorator):是什么、@ 语法糖的原理、不带参数和带参数的装饰器分别怎么写、以及 functools.wraps 的作用。请分小节、配多个代码例子。"
@@ -1076,15 +1076,15 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.onExplainClicked() }
     }
 
-    // Claude UI 视觉回归自测(POPDICT_UITEST=claude_ui):
-    // 1) 渲染图2 划词快捷悬浮条到 ~/popdict_claude_pill.png
-    // 2) 渲染图1 解释会话大弹窗到 ~/popdict_claude_explain.png
+    // Claude UI 视觉回归自测(GLINT_UITEST=claude_ui):
+    // 1) 渲染图2 划词快捷悬浮条到 ~/glint_claude_pill.png
+    // 2) 渲染图1 解释会话大弹窗到 ~/glint_claude_explain.png
     func runDemoClaudeUI() {
         let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 180, y: $0.frame.midY + 260) } ?? NSEvent.mouseLocation
         showButton(text: "demo", fallbackPoint: p)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self = self else { return }
-            self.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_pill.png")
+            self.capturePanel(to: "\(NSHomeDirectory())/glint_claude_pill.png")
             self.installConversationPanel(topLeft: p)
             let sample = """
             # 整体在讲什么
@@ -1123,10 +1123,10 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 self.syncTranscriptLayout()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                     guard let self = self else { return }
-                    self.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_explain.png")
+                    self.capturePanel(to: "\(NSHomeDirectory())/glint_claude_explain.png")
                     self.scrollTranscriptToBottom()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                        self?.capturePanel(to: "\(NSHomeDirectory())/popdict_claude_explain_bottom.png")
+                        self?.capturePanel(to: "\(NSHomeDirectory())/glint_claude_explain_bottom.png")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { NSApp.terminate(nil) }
                     }
                 }
@@ -1134,7 +1134,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
     }
 
-    // UI 自测入口(POPDICT_UITEST=translate):按钮 → 翻译中 → 短译文 → 长译文,
+    // UI 自测入口(GLINT_UITEST=translate):按钮 → 翻译中 → 短译文 → 长译文,
     // 验证自适应尺寸(短译文小窗、长译文到上限)+ 顶边固定向下生长 + 帧动画;不走网络。
     func runDemoTranslate() {
         let p = NSScreen.main.map { NSPoint(x: $0.frame.midX - 100, y: $0.frame.midY + 220) } ?? NSEvent.mouseLocation
@@ -1148,7 +1148,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
             guard let self = self else { return }
             logLine("UITEST translate short frame=\(NSStringFromRect(self.panel?.frame ?? .zero))")
-            self.capturePanel(to: "\(NSHomeDirectory())/popdict_translate_short.png")
+            self.capturePanel(to: "\(NSHomeDirectory())/glint_translate_short.png")
             let long = """
             **机器翻译**(Machine Translation)是利用计算机把一种自然语言转换为另一种自然语言的过程。
 
@@ -1169,7 +1169,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) { [weak self] in
             guard let self = self else { return }
             logLine("UITEST translate long frame=\(NSStringFromRect(self.panel?.frame ?? .zero))")
-            self.capturePanel(to: "\(NSHomeDirectory())/popdict_translate_long.png")
+            self.capturePanel(to: "\(NSHomeDirectory())/glint_translate_long.png")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
         }
     }
@@ -1485,7 +1485,7 @@ final class PopupController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 let users = convo.filter { $0.role == "user" }.count
                 logLine("UITEST multiturn: users=\(users) assistants=\(asst)")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.capturePanel(to: "\(NSHomeDirectory())/popdict_multiturn.png")
+                    self?.capturePanel(to: "\(NSHomeDirectory())/glint_multiturn.png")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
                 }
             }
@@ -1903,12 +1903,12 @@ extension NSMenuItem {
         objc_setAssociatedObject(self, &kExplicitMenuIconKey, img, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         self.image = img
     }
-    @objc func popdict_customImage() -> NSImage? {
+    @objc func glint_customImage() -> NSImage? {
         return objc_getAssociatedObject(self, &kExplicitMenuIconKey) as? NSImage
     }
-    static func popdictDisableAutoIcons() {
+    static func glintDisableAutoIcons() {
         guard let o = class_getInstanceMethod(NSMenuItem.self, #selector(getter: NSMenuItem.image)),
-              let r = class_getInstanceMethod(NSMenuItem.self, #selector(NSMenuItem.popdict_customImage)) else { return }
+              let r = class_getInstanceMethod(NSMenuItem.self, #selector(NSMenuItem.glint_customImage)) else { return }
         method_exchangeImplementations(o, r)
     }
 }
@@ -1925,7 +1925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.applicationIconImage = BrandLogo.appIconImage()
         enableBackgroundCursorSetting()        // 允许 nonactivatingPanel 在后台应用下切换工字形 I-Beam 光标
-        NSMenuItem.popdictDisableAutoIcons()   // 关掉 macOS 26 的菜单自动图标(否则「设置…」齿轮致整菜单缩进)
+        NSMenuItem.glintDisableAutoIcons()     // 关掉 macOS 26 的菜单自动图标(否则「设置…」齿轮致整菜单缩进)
         ensureConfigDir()
         AppConfig.shared.load()
         logLine("=== launch AX_TRUSTED=\(AXIsProcessTrusted()) configDir=\(FileManager.default.fileExists(atPath: kConfigDir)) ===")
@@ -1936,7 +1936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //   GLINT_UITEST=translate → 翻译流程(本地、不走网络)
         //   GLINT_UITEST=settings  → 设置窗口四 Tab 自检
         //   其它值 → 解释会话流程(走真实 API)
-        if let mode = ProcessInfo.processInfo.environment["GLINT_UITEST"] ?? ProcessInfo.processInfo.environment["POPDICT_UITEST"] {
+        if let mode = ProcessInfo.processInfo.environment["GLINT_UITEST"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self = self else { return }
                 if mode == "translate" {

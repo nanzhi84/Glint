@@ -5,11 +5,11 @@
 
 ## 1. 背景与上下文 (Context)
 
-在先前的浮窗定位设计中，[popdict-app/Geometry.swift](../../popdict-app/Geometry.swift) 与 [popdict-app/main.swift](../../popdict-app/main.swift) 采用了双分支混合定位策略：
+在先前的浮窗定位设计中，[glint-app/Geometry.swift](../../glint-app/Geometry.swift) 与 [glint-app/main.swift](../../glint-app/main.swift) 采用了双分支混合定位策略：
 1. **AX 选区矩形分支（`rectBesideSelection`）**：当 macOS Accessibility（`kAXBoundsForRange` / `AXBoundsForTextMarkerRange` / `AXFrame`）返回的选区矩形通过粗略可信度校验（`plausibleSelectionBounds`）时，将气泡放在整个选区外接矩形右上角（`x = sel.maxX + 12, maxY = sel.maxY`），右侧空间不足时则翻转到选区最左侧（`x = sel.minX - 12 - w`）。
 2. **释放点兜底分支（`rectNearPoint`）**：当 AX 未返回矩形（如终端、Claude Code 等走 `Cmd+C` 路径）或矩形被判不可信时，将气泡放在鼠标释放点**正上方水平居中**（`x = pt.x - w/2, y = pt.y + 12`）。
 
-通过 [experiments/cursor-placement/run_experiment.swift](../../experiments/cursor-placement/run_experiment.swift) 对 `~/.config/popdict/popdict.log` 真实日志及 7 类典型划词场景的实验分析，发现旧方案在全部 7 类场景中均偏离光标右下角：
+通过 [experiments/cursor-placement/run_experiment.swift](../../experiments/cursor-placement/run_experiment.swift) 对 `~/.config/glint/glint.log` 真实日志及 7 类典型划词场景的实验分析，发现旧方案在全部 7 类场景中均偏离光标右下角：
 - **多行划词垂直远漂**：在 PDF.js 或网页中选中多行段落时，AX 返回整段的外接矩形 `sel`，其顶边 `sel.maxY` 位于第一行顶部，而用户释放鼠标时光标位于最后一行末尾，导致浮窗弹在距离光标 350px–590px 之外的段落首行右上角。
 - **WebKit/Chrome 块级容器宽度虚高**：选中列表项前缀（如 `"2. "`，拖拽仅 74px）时，`AXBoundsForTextMarkerRange` 常返回整行块级容器宽度（`maxX = 1422`），浮窗向右远跳 572px。
 - **靠右段落触发左跳远端**：当段落右缘靠近屏幕右侧时，`rectBesideSelection` 将浮窗翻转到 `sel.minX - 12 - w`（整段最左侧），距光标达 713px。

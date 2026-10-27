@@ -68,13 +68,13 @@ enum ClaudeTheme {
 enum MD {
 
     // 代码块标记:LayoutManager 据此在整段后面画满宽圆角底
-    static let codeBlockKey = NSAttributedString.Key("popdictCodeBlock")
+    static let codeBlockKey = NSAttributedString.Key("glintCodeBlock")
     // 追问气泡标记:LayoutManager 据此画暖色圆角底(区分用户追问与 AI 回答)
-    static let userMsgKey = NSAttributedString.Key("popdictUserMsg")
+    static let userMsgKey = NSAttributedString.Key("glintUserMsg")
     // 引用/类比卡片标记:LayoutManager 据此画暖米色圆角卡片
-    static let quoteBlockKey = NSAttributedString.Key("popdictQuoteBlock")
+    static let quoteBlockKey = NSAttributedString.Key("glintQuoteBlock")
     // 三级小标题左侧赤陶色竖线标记
-    static let subHeadingBarKey = NSAttributedString.Key("popdictSubHeadingBar")
+    static let subHeadingBarKey = NSAttributedString.Key("glintSubHeadingBar")
 
     private static let boldOpenSentinel: Character = "\u{FFF9}"
     private static let boldCloseSentinel: Character = "\u{FFFA}"

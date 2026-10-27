@@ -1,6 +1,6 @@
 # 划词浮窗落点精确改进实验 (Cursor Bottom-Right Placement Experiment)
 
-本实验针对 `popdict` 划词气泡落点漂移、无法精确落在光标右下角的问题，基于本机 `~/.config/popdict/popdict.log` 真实运行日志与双屏环境构造可复现基准测试。
+本实验针对 `Glint` 划词气泡落点漂移、无法精确落在光标右下角的问题，基于本机 `~/.config/glint/glint.log` 真实运行日志与双屏环境构造可复现基准测试。
 
 ## 1. 实验脚本与运行方式
 
@@ -12,7 +12,7 @@
 
 ## 2. 实验发现与根因量化
 
-### 2.1 真实日志统计（`~/.config/popdict/popdict.log` 尾部 250KB）
+### 2.1 真实日志统计（`~/.config/glint/glint.log` 尾部 250KB）
 
 - AX 返回非空 `bounds` 共 **248 次**，其中：
   - 方法 1（`kAXBoundsForRange`）返回 `(0,0,0,0)` 空矩形而回退至方法 2/3 共 **254 次**；
@@ -42,4 +42,4 @@
 
 ## 3. 结论与落地
 
-实验结果已转化为架构决策记录 [ADR-0001](../../docs/adr/0001-cursor-bottom-right-placement.md)，并合入 [popdict-app/Geometry.swift](../../popdict-app/Geometry.swift) 与 [popdict-app/main.swift](../../popdict-app/main.swift)。
+实验结果已转化为架构决策记录 [ADR-0001](../../docs/adr/0001-cursor-bottom-right-placement.md)，并合入 [glint-app/Geometry.swift](../../glint-app/Geometry.swift) 与 [glint-app/main.swift](../../glint-app/main.swift)。

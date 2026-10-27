@@ -44,7 +44,7 @@
    - **直接安装**：前往 [Releases](https://github.com/nanzhi84/Glint/releases) 下载最新安装包，将 Glint 拖入「应用程序」文件夹（首次启动请**右键点击图标 → 打开**）。
    - **源码打包**：
      ```bash
-     cd popdict-app && bash build.sh
+     cd glint-app && bash build.sh
      ```
 2. **配置模型服务商与 API Key**
    - 点击屏幕右上角菜单栏 **Glint 图标** → **「设置…」** → **「服务商」**。
@@ -63,4 +63,4 @@
   - [ADR-0001：划词气泡与浮窗固定锚定于鼠标光标右下角](docs/adr/0001-cursor-bottom-right-placement.md)
   - [ADR-0002：多协议模型适配层与四大官方服务商预设方案](docs/adr/0002-multi-provider-protocol-adapter.md)
 - **版本与开源协议**：
-  - [版本变更记录 (CHANGELOG.md)](CHANGELOG.md) · 基于 [MIT License](LICENSE) 开源（仓库同时附带早期轻量实现：[Hammerspoon 脚本](popdict.lua) 与 [PopClip 扩展](DeepSeek-Translate.popclipext)）。
+  - [版本变更记录 (CHANGELOG.md)](CHANGELOG.md) · 基于 [MIT License](LICENSE) 开源。

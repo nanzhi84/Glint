@@ -1,7 +1,7 @@
 import AppKit
 
 // Markdown.swift 列表渲染的单测(不进 App 打包;跑法:
-//   swiftc -o /tmp/popdict_md_test Markdown.swift markdown_tests.swift -framework AppKit && /tmp/popdict_md_test)
+//   swiftc -o /tmp/glint_md_test Markdown.swift markdown_tests.swift -framework AppKit && /tmp/glint_md_test)
 
 @main
 struct MDTests {

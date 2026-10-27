@@ -1,9 +1,8 @@
 # 编译产物 / 打包产物(不进仓库)
 *.app/
 *.dmg
-*.popclipextz
-popdict-app/popdict_test
-popdict-app/popdict
+glint-app/glint_test
+glint-app/glint
 /tmp/
 
 # 密钥与本地配置(绝不上传)

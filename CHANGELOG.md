@@ -12,7 +12,7 @@
 - 全新设计 Claude 暖纸书卷风（`#FAF9F5` + 开口灵光气泡 + `#D97757` 赤陶星芒 `✦`）品牌矢量 Logo（`images/logo.svg`）、macOS 原生应用图标（`Glint.icns`）与 18×18 自适应明暗菜单栏矢量图标（`BrandLogo.swift`）。
 
 ### Changed
-- **项目正式更名为 `Glint`**：应用包名升级为 `Glint.app` / `Glint.dmg`（Bundle ID `com.yoryon.glint`），配置与日志目录升级为 `~/.config/glint/`（首次启动自动从旧版 `~/.config/popdict/config.json` 平滑无损迁移），开机自启 LaunchAgent 升级为 `com.yoryon.glint.plist`。
+- **项目正式定名为 `Glint`**：应用包名统一为 `Glint.app` / `Glint.dmg`（Bundle ID `com.yoryon.glint`，源码目录 `glint-app/`），配置与日志目录统一为 `~/.config/glint/`，开机自启 LaunchAgent 统一为 `com.yoryon.glint.plist`。
 - 重写 `README.md` 门面文档（居中品牌 Logo、三合一动态演示视频 `images/demo.mp4` / `images/demo.gif`、Core ideas、Get started、Learn more），集中展示任意应用划词翻译、划词解释与 `⌃⌥E` 截图解释三大核心工作流。
 - 精简菜单栏下拉菜单（仅保留「设置…」与「退出」），并将偏好设置窗口升级为 macOS 原生工具栏图标样式的 **「基础」**、**「权限」**、**「服务商」**、**「语言」** 四 Tab 布局。
 - 改进划词气泡与浮窗落点定位逻辑，精确锚定于鼠标光标右下角。
@@ -23,7 +23,7 @@
 ## [1.0.0] - 2026-07-07
 
 ### Added
-- 原生 macOS 菜单栏划词助手（`popdict-app`）：支持划词「🌐 翻译」与「💡 解释」（SSE 流式打字机输出 + 多轮上下文追问）。
+- 原生 macOS 菜单栏划词助手（`glint-app`）：支持划词「🌐 翻译」与「💡 解释」（SSE 流式打字机输出 + 多轮上下文追问）。
 - 完整块级 Markdown 富文本渲染（`Markdown.swift`）：支持标题、多级嵌套列表、GFM 表格、引用、任务列表及圆角底色代码块。
 - 多模态「📷 截图解释」（`Screenshot.swift`）：支持 `⌃⌥E` 框选屏幕区域交由视觉模型讲解并追问。
 - 多厂商配置管理 GUI（`Config.swift` / `Settings.swift`）：内置 DeepSeek 与小米 MiMo，支持自定义任意 OpenAI 兼容接口。

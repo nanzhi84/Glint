@@ -6,9 +6,9 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_SWIFT = REPO_ROOT / "popdict-app" / "Config.swift"
-MAIN_SWIFT = REPO_ROOT / "popdict-app" / "main.swift"
-SETTINGS_SWIFT = REPO_ROOT / "popdict-app" / "Settings.swift"
+CONFIG_SWIFT = REPO_ROOT / "glint-app" / "Config.swift"
+MAIN_SWIFT = REPO_ROOT / "glint-app" / "main.swift"
+SETTINGS_SWIFT = REPO_ROOT / "glint-app" / "Settings.swift"
 
 
 def _compile_and_run_swift_probe(probe_source: str) -> subprocess.CompletedProcess[str]:
@@ -160,20 +160,11 @@ class TestLanguageConfigPersistenceAndUI(unittest.TestCase):
     def test_legacy_config_json_defaults_and_custom_prompts_roundtrip(self) -> None:
         probe_source = """import Foundation
 
-let legacyConfigDir = ("~/.config/popdict" as NSString).expandingTildeInPath
-let legacyConfigPath = legacyConfigDir + "/config.json"
 let glintConfigDir = ("~/.config/glint" as NSString).expandingTildeInPath
 let glintConfigPath = glintConfigDir + "/config.json"
 let fm = FileManager.default
-let backupLegacyData = fm.contents(atPath: legacyConfigPath)
 let backupGlintData = fm.contents(atPath: glintConfigPath)
 defer {
-    if let data = backupLegacyData {
-        try? fm.createDirectory(atPath: legacyConfigDir, withIntermediateDirectories: true)
-        try? data.write(to: URL(fileURLWithPath: legacyConfigPath), options: .atomic)
-    } else {
-        try? fm.removeItem(atPath: legacyConfigPath)
-    }
     if let data = backupGlintData {
         try? fm.createDirectory(atPath: glintConfigDir, withIntermediateDirectories: true)
         try? data.write(to: URL(fileURLWithPath: glintConfigPath), options: .atomic)
@@ -182,9 +173,8 @@ defer {
     }
 }
 
-try? fm.removeItem(atPath: glintConfigPath)
-try? fm.createDirectory(atPath: legacyConfigDir, withIntermediateDirectories: true)
-let legacyJSON = \"\"\"
+try? fm.createDirectory(atPath: glintConfigDir, withIntermediateDirectories: true)
+let minimalJSON = \"\"\"
 {
   "active": "DeepSeek",
   "providers": [
@@ -199,21 +189,21 @@ let legacyJSON = \"\"\"
   ]
 }
 \"\"\"
-try! legacyJSON.write(toFile: legacyConfigPath, atomically: true, encoding: .utf8)
+try! minimalJSON.write(toFile: glintConfigPath, atomically: true, encoding: .utf8)
 
 AppConfig.shared.load()
 guard fm.fileExists(atPath: glintConfigPath) else {
-    fputs("FAIL: ~/.config/glint/config.json was not automatically created/migrated on disk\\n", stderr)
+    fputs("FAIL: ~/.config/glint/config.json does not exist on disk\\n", stderr)
     exit(1)
 }
 guard AppConfig.shared.activeName == "DeepSeek",
       let ds = AppConfig.shared.providers.first(where: { $0.name == "DeepSeek" }),
       ds.apiKey == "sk-test" else {
-    fputs("FAIL: migrated activeName or DeepSeek apiKey not preserved\\n", stderr)
+    fputs("FAIL: activeName or DeepSeek apiKey not preserved\\n", stderr)
     exit(1)
 }
 guard AppConfig.shared.language == "Simplified Chinese" else {
-    fputs("FAIL: legacy config should default language to Simplified Chinese, got \\(AppConfig.shared.language)\\n", stderr)
+    fputs("FAIL: minimal config should default language to Simplified Chinese, got \\(AppConfig.shared.language)\\n", stderr)
     exit(1)
 }
 guard !AppConfig.shared.resolvedTranslatePrompt.contains("<languages>")
@@ -291,24 +281,24 @@ print("PERSISTENCE_ROUNDTRIP_OK")
         self.assertNotIn(
             "hasChinese(",
             main_content,
-            "popdict-app/main.swift must not use legacy single-hanzi heuristic hasChinese(",
+            "glint-app/main.swift must not use legacy single-hanzi heuristic hasChinese(",
         )
         self.assertIn(
             "AppConfig.shared.resolvedTranslatePrompt",
             main_content,
-            "popdict-app/main.swift must use AppConfig.shared.resolvedTranslatePrompt for translation",
+            "glint-app/main.swift must use AppConfig.shared.resolvedTranslatePrompt for translation",
         )
         self.assertIn(
             "AppConfig.shared.resolvedExplainPrompt",
             main_content,
-            "popdict-app/main.swift must use AppConfig.shared.resolvedExplainPrompt for explanation",
+            "glint-app/main.swift must use AppConfig.shared.resolvedExplainPrompt for explanation",
         )
 
         settings_content = SETTINGS_SWIFT.read_text(encoding="utf-8")
         self.assertIn(
             '"语言"',
             settings_content,
-            'popdict-app/Settings.swift must include the "语言" tab in Preferences',
+            'glint-app/Settings.swift must include the "语言" tab in Preferences',
         )
 
 
