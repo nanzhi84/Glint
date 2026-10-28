@@ -57,6 +57,109 @@ class _LandingPageDocumentParser(HTMLParser):
         return "".join(self.title_parts).strip()
 
 
+class _WalkthroughVisualParser(HTMLParser):
+    _VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._stack: list[tuple[str, dict[str, str]]] = []
+        self._walkthrough_section_depth: int | None = None
+        self._current_card_depth: int | None = None
+        self._current_card: dict[str, object] | None = None
+        self.cards: list[dict[str, object]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lowered_tag = tag.lower()
+        attr_map = {k.lower(): (v or "") for k, v in attrs}
+
+        if lowered_tag not in self._VOID_TAGS:
+            self._stack.append((lowered_tag, attr_map))
+
+        if (
+            self._walkthrough_section_depth is None
+            and lowered_tag == "section"
+            and attr_map.get("id") == "walkthrough"
+        ):
+            self._walkthrough_section_depth = len(self._stack)
+
+        if self._walkthrough_section_depth is not None:
+            classes = set(attr_map.get("class", "").split())
+            if self._current_card is None and "walkthrough-visual" in classes:
+                self._current_card_depth = len(self._stack)
+                self._current_card = {
+                    "has_zh": False,
+                    "has_en": False,
+                    "zh_parts": [],
+                    "en_parts": [],
+                }
+
+            if self._current_card is not None:
+                data_lang = attr_map.get("data-lang", "").lower()
+                if data_lang == "zh":
+                    self._current_card["has_zh"] = True
+                elif data_lang == "en":
+                    self._current_card["has_en"] = True
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered_tag = tag.lower()
+        if lowered_tag in self._VOID_TAGS:
+            return
+
+        for idx in range(len(self._stack) - 1, -1, -1):
+            if self._stack[idx][0] == lowered_tag:
+                del self._stack[idx:]
+                break
+
+        if (
+            self._current_card is not None
+            and self._current_card_depth is not None
+            and len(self._stack) < self._current_card_depth
+        ):
+            self.cards.append(self._current_card)
+            self._current_card = None
+            self._current_card_depth = None
+
+        if (
+            self._walkthrough_section_depth is not None
+            and len(self._stack) < self._walkthrough_section_depth
+        ):
+            self._walkthrough_section_depth = None
+
+    def handle_data(self, data: str) -> None:
+        if self._current_card is None or self._current_card_depth is None:
+            return
+        active_subtree = self._stack[self._current_card_depth - 1 :]
+        hidden_in_en = any(
+            attrs.get("data-lang", "").lower() == "zh" for _, attrs in active_subtree
+        )
+        hidden_in_zh = any(
+            attrs.get("data-lang", "").lower() == "en" for _, attrs in active_subtree
+        )
+        if not hidden_in_en:
+            zh_or_en_list = self._current_card["en_parts"]
+            assert isinstance(zh_or_en_list, list)
+            zh_or_en_list.append(data)
+        if not hidden_in_zh:
+            zh_list = self._current_card["zh_parts"]
+            assert isinstance(zh_list, list)
+            zh_list.append(data)
+
+
 class TestLandingPage(unittest.TestCase):
     def _load_and_parse(self) -> tuple[str, _LandingPageDocumentParser]:
         self.assertTrue(
@@ -552,6 +655,77 @@ class TestLandingPage(unittest.TestCase):
                 0,
                 f"Referenced local media asset must not be empty: {rel_asset}",
             )
+
+    def test_landing_page_switching_to_english_translates_all_walkthrough_preview_cards(
+        self,
+    ) -> None:
+        content, _ = self._load_and_parse()
+        walkthrough_parser = _WalkthroughVisualParser()
+        walkthrough_parser.feed(content)
+
+        self.assertEqual(
+            len(walkthrough_parser.cards),
+            4,
+            f"Expected 4 .walkthrough-visual preview blocks inside #walkthrough, found {len(walkthrough_parser.cards)}",
+        )
+
+        expected_en_tokens: tuple[tuple[str, ...], ...] = (
+            ("Translate", "Explain"),
+            ("Enter",),
+            ("⌃⌥E",),
+            ("Providers", "11"),
+        )
+        expected_zh_tokens: tuple[tuple[str, ...], ...] = (
+            ("翻译", "解释"),
+            ("继续追问",),
+            ("框选",),
+            ("服务商",),
+        )
+
+        for idx, card in enumerate(walkthrough_parser.cards, start=1):
+            self.assertTrue(
+                bool(card["has_zh"]),
+                f"Walkthrough preview card #{idx} must include data-lang=\"zh\" markup",
+            )
+            self.assertTrue(
+                bool(card["has_en"]),
+                f"Walkthrough preview card #{idx} must include data-lang=\"en\" markup",
+            )
+
+            en_parts = card["en_parts"]
+            zh_parts = card["zh_parts"]
+            assert isinstance(en_parts, list)
+            assert isinstance(zh_parts, list)
+            visible_en_text = " ".join("".join(en_parts).split())
+            visible_zh_text = " ".join("".join(zh_parts).split())
+
+            self.assertGreater(
+                len(visible_en_text),
+                0,
+                f"Walkthrough preview card #{idx} visible English text must not be empty",
+            )
+            self.assertIsNone(
+                re.search(r"[\u4e00-\u9fff]", visible_en_text),
+                f"Walkthrough preview card #{idx} in English mode must not contain Chinese characters, got: {visible_en_text}",
+            )
+            for token in expected_en_tokens[idx - 1]:
+                self.assertIn(
+                    token,
+                    visible_en_text,
+                    f"Walkthrough preview card #{idx} in English mode must contain '{token}', got: {visible_en_text}",
+                )
+
+            self.assertGreater(
+                len(visible_zh_text),
+                0,
+                f"Walkthrough preview card #{idx} visible Chinese text must not be empty",
+            )
+            for token in expected_zh_tokens[idx - 1]:
+                self.assertIn(
+                    token,
+                    visible_zh_text,
+                    f"Walkthrough preview card #{idx} in Chinese mode must contain '{token}', got: {visible_zh_text}",
+                )
 
 
 if __name__ == "__main__":
